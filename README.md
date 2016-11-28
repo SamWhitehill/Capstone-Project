@@ -1,2 +1,2 @@
 # Capstone-Project
-Machine Learning for predicting stock prices
+Machine Learning project to predicting stock prices using historical data.
