@@ -8,7 +8,7 @@ from matplotlib.finance import quotes_historical_yahoo_ohlc, candlestick_ohlc,\
 from matplotlib import transforms
 import datetime as date
 
-
+import pandas as pd
 
 # (Year, month, day) tuples suffice as args for quotes_historical_yahoo
 date1 = (1995, 6, 1)
@@ -25,6 +25,8 @@ sSymbol ='IBM'
 quotes = quotes_historical_yahoo_ohlc(sSymbol, date1, date2)
 if len(quotes) == 0:
     raise SystemExit
+
+dfQuotes =pd.DataFrame(quotes,columns=['Date','Open','Close','High','Low','Volume'])
 
 ds, opens, closes, highs, lows, volumes = zip(*quotes)
 
