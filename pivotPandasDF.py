@@ -6,7 +6,8 @@ from matplotlib.finance import quotes_historical_yahoo_ohlc, candlestick_ohlc,\
 
 from sklearn import preprocessing
 from sklearn.grid_search import GridSearchCV
-
+#from sklearn.neural_network import MLPRegressor
+import keras
 
 def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
                                    pNumDaysLookBack):
@@ -60,34 +61,44 @@ def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
 
 
 def fnMain():
-    blnGridSearch =False
+    blnGridSearch =True
     
     #train data
     lStartDate=datetime.date(2002, 1, 6)
     lEndDate=datetime.date(2003, 12, 25)
 
-    dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , "XOM")
+    dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , "SPY")
 
     #test data
     lStartDate=lEndDate #datetime.date(2003, 12, 25)
     lEndDate=datetime.date(2004, 12, 24)
 
-    dfQuotesTest =fnGetYahooStockData(lStartDate,lEndDate , "XOM")
+    dfQuotesTest =fnGetYahooStockData(lStartDate,lEndDate , "SPY")
 
     #fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
      #                                  pNumDaysLookBack)
 
-    lNumDaysLookBack=120
-    lNumDaysAheadPredict=44
+    lNumDaysLookBack=11
+    lNumDaysAheadPredict=10
     train=fnGetHistoricalStockDataForSVM(dfQuotes,lNumDaysAheadPredict , lNumDaysLookBack)
 
     testingData=fnGetHistoricalStockDataForSVM(dfQuotesTest,lNumDaysAheadPredict , lNumDaysLookBack)
 
+    #11 day lookback, 10 day ahead, scores .75, SVR(C=1100000, cache_size=200, coef0=0.0, degree=3, epsilon=0.001,
+    #gamma=1e-07, kernel='rbf', max_iter=-1, shrinking=True, tol=0.001,
+    #verbose=False)
+    #25 look back, 5 days out scores .42
+    #18 look back, 10 days out scores .38
+    # clf= svm.SVR(kernel='rbf', C=99999,gamma=1e-7,    epsilon =.001) continued...
+    #18 look back, 10 days out scores  .55
+    #15 look back, 10 days out svm.SVR(kernel='rbf', C=99999,gamma=1e-7,    epsilon =.001), scores .65
 
 
     # fit the model and calculate its accuracy
     #{'C': 500000, 'gamma': 1e-06}
-    rbf_svm = svm.SVR(kernel='rbf', C=25000000,gamma=1e-06,    epsilon =.001)
+    #{'C': 1100000, 'gamma': 1e-07}
+    clfReg = svm.SVR(kernel='rbf', C=1100000,gamma=1e-7,    epsilon =.001)
+    #clfReg =MLPRegressor(activation='logistic')
 
 
     X_train =train[0]
@@ -97,11 +108,11 @@ def fnMain():
     scaler = preprocessing.StandardScaler().fit(X_train)
     X_train =scaler.transform(X_train)  
 
-    parameters={'C':[45000,80000,500000,750000,1200000,25000000,80000000],'gamma':[1e-03,1e-06,1e-10,1e-16]}
+    parameters={'C':[2000,10000,45000,80000,500000,750000,1100000,15000000,25000000,80000000],'gamma':[1e-03,1e-06,1e-7,1e-8,1e-10,1e-12]}
     
-    clf =rbf_svm
+    clf =clfReg
     if blnGridSearch:
-        clf = GridSearchCV(rbf_svm, parameters, verbose=1,n_jobs=3)
+        clf = GridSearchCV(clfReg, parameters, verbose=1,n_jobs=3)
     #clf =rbf_svm
 
 
@@ -114,7 +125,7 @@ def fnMain():
     y_test =testingData[1]
 
     X_test =scaler.transform(X_test)  
-    score = rbf_svm.score(X_test, y_test)
+    score = clf.score(X_test, y_test)
     print(score)
     #print(test) result=  rbf_svm.predict(X_test)
 
