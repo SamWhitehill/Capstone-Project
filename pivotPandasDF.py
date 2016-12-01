@@ -7,7 +7,7 @@ from matplotlib.finance import quotes_historical_yahoo_ohlc, candlestick_ohlc,\
 from sklearn import preprocessing
 from sklearn.grid_search import GridSearchCV
 #from sklearn.neural_network import MLPRegressor
-import keras
+from neon.data import IMDB
 
 def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
                                    pNumDaysLookBack):
@@ -61,7 +61,7 @@ def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
 
 
 def fnMain():
-    blnGridSearch =True
+    blnGridSearch =False
     
     #train data
     lStartDate=datetime.date(2002, 1, 6)
@@ -78,8 +78,8 @@ def fnMain():
     #fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
      #                                  pNumDaysLookBack)
 
-    lNumDaysLookBack=11
-    lNumDaysAheadPredict=10
+    lNumDaysLookBack=8
+    lNumDaysAheadPredict=7
     train=fnGetHistoricalStockDataForSVM(dfQuotes,lNumDaysAheadPredict , lNumDaysLookBack)
 
     testingData=fnGetHistoricalStockDataForSVM(dfQuotesTest,lNumDaysAheadPredict , lNumDaysLookBack)
@@ -104,13 +104,21 @@ def fnMain():
     X_train =train[0]
     y_train =train[1]
 
+
+
+    #scaler = preprocessing.MinMaxScaler(feature_range=(0, 1))
+
+    #dataset = scaler.fit_transform(dataset)
     #must implement feature scaling, or else volume will dominate
-    scaler = preprocessing.StandardScaler().fit(X_train)
+    #scaler = preprocessing.StandardScaler().fit(X_train)
+    scaler = preprocessing.MinMaxScaler(feature_range=(0, 1)).fit(X_train) #.46 score
+
     X_train =scaler.transform(X_train)  
 
     parameters={'C':[2000,10000,45000,80000,500000,750000,1100000,15000000,25000000,80000000],'gamma':[1e-03,1e-06,1e-7,1e-8,1e-10,1e-12]}
     
     clf =clfReg
+
     if blnGridSearch:
         clf = GridSearchCV(clfReg, parameters, verbose=1,n_jobs=3)
     #clf =rbf_svm
