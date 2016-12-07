@@ -4,11 +4,12 @@ from __future__ import print_function
 #import pandas_datareader.data as web
 import math
 from pandas.io import data as web 
+import pandas as pd
 from sklearn.metrics import mean_squared_error
 import datetime as dt
 import numpy as np
 import matplotlib.pyplot as plt
-from pybrain.datasets import SequentialDataSet
+from pybrain.datasets import SequentialDataSet,SupervisedDataSet
 from pybrain.tools.shortcuts import buildNetwork
 from pybrain.structure.modules import LSTMLayer, LinearLayer, SigmoidLayer, SoftmaxLayer,TanhLayer
 from pybrain.structure.networks import RecurrentNetwork
@@ -20,7 +21,9 @@ from sklearn.preprocessing import MinMaxScaler
 
 print ("Cite Reference: https://stavrossioutis.wordpress.com/2016/06/25/long-short-term-memory-rnns-for-stock-price-forecasting/")
 
-data = web.get_data_yahoo('SPY', dt.datetime(2015,10,22), dt.datetime(2016,06,22))
+#data = web.get_data_yahoo('SPY', dt.datetime(2015,12,22), dt.datetime(2016,6,22))
+data =pd.read_csv("SPY.csv")
+data[['Open','High','Low','Adj Close','Volume']] =data[['Open','High','Low','Adj Close','Volume']].astype(float)
 #data = data.ix[:,5].values.tolist()
 
 data = data[['Open','High','Low','Adj Close','Volume']].values.tolist()
@@ -33,11 +36,17 @@ data = scaler.transform(data).tolist()
 
 #ds = SequentialDataSet(7, 1)
 
-numDaysAhead =1
-numDaysLookBack=20
+numDaysAhead =7
+numDaysLookBack=60
 numDim =5
 
-ds = SequentialDataSet(5, 1)
+#possibly try
+#assert(X.shape[0] == y.shape[0])
+#DS.setField('input', X)
+#DS.setField('target', y)
+
+#ds = SequentialDataSet(5, 1)
+ds = SupervisedDataSet(numDaysLookBack*numDim, 1)
 
 for i in range(0,len(data)-(numDaysAhead+numDaysLookBack+1)):
     # training: previous 10 days and same day last year
@@ -46,17 +55,21 @@ for i in range(0,len(data)-(numDaysAhead+numDaysLookBack+1)):
     # target: 5 days ahead
     #target = data[i+10]
     target =  [data[i+numDaysLookBack+numDaysAhead-1][3]] #adj close is 3rd item
+    flattenedSample =[item for sublist in sample for item in sublist]
 
-    #for each row of training data for this sample (window of trading days)
-    for input in sample:
-           
-        #need to add samples in a loop 
-        ds.appendLinked(input, target)
+    ds.addSample(flattenedSample,target)
+    if False:
+        #for each row of training data for this sample (window of trading days)
+        for input in sample:
+   
+            #need to add samples in a loop 
+            ds.appendLinked(input, target)
 
-    ds.newSequence()
+    #ds.newSequence()
 
-ds.removeSequence(i+1)
+#ds.removeSequence(i+1)
 
+print ('done with adding sequences')
 #net = buildNetwork(7, 30, 1, hiddenclass=LSTMLayer, outputbias=False, recurrent=True)
 #reduced middle layer by Sam to 6, this must match number of past days used!
 ### BUILD recurrent network explicitly
@@ -81,19 +94,19 @@ if False:
     n.sortModules()
 
 #BUILD RNN using SHORTCUT  
-net = buildNetwork(numDim,3,1 , hiddenclass=LSTMLayer,  outputbias=False, recurrent=True) # outclass=TanhLayer)
+net = buildNetwork(numDim*numDaysLookBack,3,1 , hiddenclass=LSTMLayer,  outputbias=False, recurrent=True) # outclass=TanhLayer)
 
 trainer = RPropMinusTrainer(net, dataset=ds)
 
-print('training until convergence')
-trainer.trainUntilConvergence(dataset=ds,validationProportion=0.25)
-
-if False:
+#print('training until convergence')
+trainer.trainUntilConvergence(dataset=ds,validationProportion=0.35,continueEpochs =800,convergence_threshold=200) #convergence_threshold ?
+#200 epochs per cycle, 3 cycles is horrible
+if False:                    
     train_errors = [] # save errors for plotting later
-    EPOCHS_PER_CYCLE = 60
-    CYCLES = 40 # was 500
+    EPOCHS_PER_CYCLE = 20                                                                  
+    CYCLES = 135 # was 500
     EPOCHS = EPOCHS_PER_CYCLE * CYCLES
-    for i in xrange(CYCLES):
+    for i in range(CYCLES): #xrange(CYCLES):
         trainer.trainEpochs(EPOCHS_PER_CYCLE)
         train_errors.append(trainer.testOnData())
         epoch = (i+1) * EPOCHS_PER_CYCLE
@@ -106,23 +119,39 @@ if False:
 #target = np.zeros(ds.getSequenceLength(0))
 #prediction = np.zeros(ds.getSequenceLength(0))
 
-target = np.zeros(ds.getNumSequences())
-prediction = np.zeros(ds.getNumSequences())
+#target = np.zeros(ds.getNumSequences())
+#prediction = np.zeros(ds.getNumSequences())
+
+target = np.zeros(len(ds))
+prediction = np.zeros(len(ds))
      
 i = 0
 
-for SeqCtr in range(ds.getNumSequences()):
-    input, target =ds.getSequence(SeqCtr)
-    #for s, t in ds.getSequenceIterator(SeqCtr):
-    #target[i] = t
-    #target[i] = scaler.inverse_transform(t[0]) #scaler.inverse_transform(t.tolist()*numDim)[3]
-    target[i] =scaler.inverse_transform([x[0] for x in target[0:numDim].tolist()])[3]
-    
-    #prediction[i] = net.activate(s)
-    prediction[i] = net.activate(input)
+#for s, t in ds.getSequenceIterator(0):
+#    target[i] = t
+#    prediction[i] = net.activate(s)
+for inp, targ in ds:
+    target[i] =scaler.inverse_transform(targ.tolist()*numDim)[3]
+    prediction[i] = net.activate(inp)
     #prediction[i] = scaler.inverse_transform([prediction[i]]) 
     prediction[i] = scaler.inverse_transform([prediction[i]]*numDim)[3]
     i += 1
+
+if False:
+	for SeqCtr in range(ds.getNumSequences()):
+		input, target =ds.getSequence(SeqCtr)
+		#for s, t in ds.getSequenceIterator(SeqCtr):
+		#target[i] = t
+		#target[i] = scaler.inverse_transform(t[0]) #scaler.inverse_transform(t.tolist()*numDim)[3]
+		target[i] =scaler.inverse_transform([x[0] for x in target[0:numDim].tolist()])[3]
+    
+		#prediction[i] = net.activate(s)
+		###TRANSFORM input into serialized data so it can be activated
+		input=input.flatten()
+		prediction[i] = net.activate(input)
+		#prediction[i] = scaler.inverse_transform([prediction[i]]) 
+		prediction[i] = scaler.inverse_transform([prediction[i]]*numDim)[3]
+		i += 1
 
 plt.plot(target)
 plt.plot(prediction)
