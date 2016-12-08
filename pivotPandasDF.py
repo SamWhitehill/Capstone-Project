@@ -1,3 +1,4 @@
+import math
 from sklearn import svm
 import pandas as pd
 import datetime
@@ -7,7 +8,9 @@ from matplotlib.finance import quotes_historical_yahoo_ohlc, candlestick_ohlc,\
 from sklearn import preprocessing
 from sklearn.grid_search import GridSearchCV
 #from sklearn.neural_network import MLPRegressor
-from neon.data import IMDB
+#from neon.data import IMDB
+from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
 
 def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
                                    pNumDaysLookBack):
@@ -62,24 +65,24 @@ def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
 
 def fnMain():
     blnGridSearch =False
-    
+    lTicker ="ABX"
     #train data
     lStartDate=datetime.date(2002, 1, 6)
     lEndDate=datetime.date(2003, 12, 25)
 
-    dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , "SPY")
+    dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
 
     #test data
     lStartDate=lEndDate #datetime.date(2003, 12, 25)
     lEndDate=datetime.date(2004, 12, 24)
 
-    dfQuotesTest =fnGetYahooStockData(lStartDate,lEndDate , "SPY")
+    dfQuotesTest =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
 
     #fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
      #                                  pNumDaysLookBack)
 
-    lNumDaysLookBack=8
-    lNumDaysAheadPredict=7
+    lNumDaysLookBack=75
+    lNumDaysAheadPredict=10
     train=fnGetHistoricalStockDataForSVM(dfQuotes,lNumDaysAheadPredict , lNumDaysLookBack)
 
     testingData=fnGetHistoricalStockDataForSVM(dfQuotesTest,lNumDaysAheadPredict , lNumDaysLookBack)
@@ -97,7 +100,9 @@ def fnMain():
     # fit the model and calculate its accuracy
     #{'C': 500000, 'gamma': 1e-06}
     #{'C': 1100000, 'gamma': 1e-07}
-    clfReg = svm.SVR(kernel='rbf', C=1100000,gamma=1e-7,    epsilon =.001)
+    C=2160000
+    gamma=1e-8
+    clfReg = svm.SVR(kernel='rbf', C=C,gamma=gamma,    epsilon =.001)
     #clfReg =MLPRegressor(activation='logistic')
 
 
@@ -133,8 +138,32 @@ def fnMain():
     y_test =testingData[1]
 
     X_test =scaler.transform(X_test)  
+    
+
     score = clf.score(X_test, y_test)
-    print(score)
+    prediction =clf.predict(X_test)
+
+    #reverse the scaler to get back original prices
+    
+    #prediction=scaler.inverse_transform(prediction)
+
+    testScore = math.sqrt(mean_squared_error(y_test, prediction))
+    print('Test Score: %.2f RMSE' % (testScore))
+
+    print('SVM Score: ' +str(score))
+
+        
+    plt.plot(y_test,label='Actual ' + lTicker)
+    plt.plot(prediction,label='Predicted')
+    #lNumDaysLookBack=30
+    #lNumDaysAheadPredict=5
+    plt.suptitle(lTicker + ' SVR: ' + str(C) + ' gamma ' +str(gamma) + ' lookback: '+str(lNumDaysLookBack) +
+                 ' daysAhead: ' + str(lNumDaysAheadPredict) + ' SVM Score: '+ str(score),
+                fontsize=14, fontweight='bold')
+    
+    legend = plt.legend(loc='upper center', shadow=True, fontsize='x-large')
+    
+    plt.show()
     #print(test) result=  rbf_svm.predict(X_test)
 
     #?result[10:20]
