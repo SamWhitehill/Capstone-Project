@@ -12,39 +12,69 @@ from sklearn.grid_search import GridSearchCV
 from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
 
+def get_bollinger_bands(rm, rstd):
+
+	upper_band=rm + (2*rstd)
+
+	lower_band=rm + (-2*rstd)
+
+	return upper_band, lower_band
+
 def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
                                    pNumDaysLookBack):
 
-    #sort by date asc
-    df=pDataFrameStockData
-    df.Date = pd.to_datetime(df.Date)
-    df.sort(['Date'], inplace=True)
-    lst_Y =[]
-    lStrTicker ='TICKER'
-    
-    
-    iRowCtr =0
-    #dfFilter =df[df['Date']<datetime.date(year=2015,month=9,day=6)]
-    lEnd =len(df)
-    lEndRow =1
-    lRowPredictedPrice =pNumDaysAheadPredict
-    df['Ticker'] =lStrTicker 
-    result =[]
-    while (iRowCtr+pNumDaysLookBack+pNumDaysAheadPredict)<=lEnd:
-    #for iRowCtr in range(0, lEnd):
-        lEndRow =iRowCtr+pNumDaysLookBack
-        #p = df[df['Date']<datetime.date(year=2015,month=9,day=6)].pivot(index='Ticker', columns='Date')
-        p = df[iRowCtr:lEndRow].pivot(index='Ticker', columns='Date')
-
-        result.append(list(p.T[lStrTicker][:]))
-
-        lRowPredictedPrice =lEndRow+pNumDaysAheadPredict-1
-        lst_Y.append(df['Close'][lRowPredictedPrice:lRowPredictedPrice+1].values[0])
-        iRowCtr=iRowCtr+1
+        #sort by date asc
+        df=pDataFrameStockData
+        df.Date = pd.to_datetime(df.Date)
+        df.sort(['Date'], inplace=True)
+        lst_Y =[]
+        lStrTicker ='TICKER'
 
 
+        # compute rolling mean, stdev, bollinger
+        rollingMean =pd.rolling_mean(df['Close'],window=20)
+        rollingMeanFifty =pd.rolling_mean(df['Close'],window=50)
 
-    return result, lst_Y
+        rollingStdev =pd.rolling_std(df['Close'],window=20)
+
+        rollingMeanFifty.fillna(value=0,inplace=True)
+        rollingMean.fillna(value=0,inplace=True)
+        rollingStdev.fillna(value=0,inplace=True)
+
+        #rollingMean =rollingMean+10
+        #print(rollingMean)
+
+        upper_band, lower_band =get_bollinger_bands(rollingMean,rollingStdev )
+
+
+        #append additional stats into original dataframe
+        
+        #TRUNCATE dataframe until point when rolling stats start, otherwise we will have
+        # zero for rolling mean , stdev
+
+        iRowCtr =0
+        #dfFilter =df[df['Date']<datetime.date(year=2015,month=9,day=6)]
+        lEnd =len(df)
+        lEndRow =1
+        lRowPredictedPrice =pNumDaysAheadPredict
+        df['Ticker'] =lStrTicker 
+        result =[]
+
+        while (iRowCtr+pNumDaysLookBack+pNumDaysAheadPredict)<=lEnd:
+                #for iRowCtr in range(0, lEnd):
+                lEndRow =iRowCtr+pNumDaysLookBack
+                #p = df[df['Date']<datetime.date(year=2015,month=9,day=6)].pivot(index='Ticker', columns='Date')
+                p = df[iRowCtr:lEndRow].pivot(index='Ticker', columns='Date')
+
+                result.append(list(p.T[lStrTicker][:]))
+
+                lRowPredictedPrice =lEndRow+pNumDaysAheadPredict-1
+                lst_Y.append(df['Close'][lRowPredictedPrice:lRowPredictedPrice+1].values[0])
+                iRowCtr=iRowCtr+1
+
+
+
+        return result, lst_Y
 
 
 def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
