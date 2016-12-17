@@ -13,7 +13,7 @@ from sklearn.grid_search import GridSearchCV
 from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
 import cPickle
-
+import numpy as np
 
 def get_bollinger_bands(rm, rstd):
 
@@ -22,6 +22,71 @@ def get_bollinger_bands(rm, rstd):
 	lower_band=rm + (-2*rstd)
 
 	return upper_band, lower_band
+
+def fnComputeCandleStickPattern(pDf):
+
+    pDf['RealBody']=np.absolute(pDf['Close'] -pDf['Open'])/pDf['Open']*1
+    pDf['Color']=np.where(pDf['Close'] >pDf['Open'] ,.5,-.5) #use numbers not colors
+    
+    return pDf
+
+def fnComputeFeatures(pDf):
+    #compute various historical features such as rolling mean, bollinger bands
+    #candlestick patterns,etc.., 
+    #returns dataframe with the features
+    # compute rolling mean, stdev, bollinger
+    df =pDf
+    
+    df=fnComputeCandleStickPattern(df)
+
+    rollingMean =pd.rolling_mean(df['Close'],window=20)
+    rollingMeanFifty =pd.rolling_mean(df['Close'],window=50)
+
+    rollingStdev =pd.rolling_std(df['Close'],window=20)
+
+    rollingMeanFifty.fillna(value=0,inplace=True)
+    rollingMean.fillna(value=0,inplace=True)
+    rollingStdev.fillna(value=0,inplace=True)
+
+    #rollingMean =rollingMean+10
+    #print(rollingMean)
+    #upper /lower bands are pandas series
+    upper_band, lower_band =get_bollinger_bands(rollingMean,rollingStdev )
+
+
+    #append additional stats into original dataframe
+    #first create dataframes
+    upper_band =pd.DataFrame(upper_band)
+    upper_band = pd.DataFrame(upper_band).reset_index()
+    upper_band.columns = ['Date', 'upper_band']
+    #name column
+        
+    lower_band =pd.DataFrame(lower_band)
+    lower_band = pd.DataFrame(lower_band).reset_index()
+    lower_band.columns = ['Date', 'lower_band']
+
+    rollingMean=pd.DataFrame(rollingMean)
+    rollingMean = pd.DataFrame(rollingMean).reset_index()
+    rollingMean.columns = ['Date', 'rollingMean20']
+
+    if True:
+        df =df.merge(upper_band,how='inner',on=['Date'])
+        df =df.merge(lower_band,how='inner',on=['Date'])
+        #df =df.merge(rollingMean,how='inner',on=['Date'])
+        #TRUNCATE dataframe until point when rolling stats start, otherwise we will have
+        # zero for rolling mean , stdev
+        df =df[df['upper_band']>0]
+        
+    #compute diff between price and up/low bollingers
+    df['DiffercenceBtwn_upper_band'] =df['upper_band']-df['Close']
+    df['DiffercenceBtwn_lower_band'] =df['Close']-df['lower_band']
+
+    #remove bollingers now
+    del df['upper_band']
+    del df['lower_band']
+    
+
+    return pDf
 
 def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
                                    pNumDaysLookBack):
@@ -32,54 +97,9 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         df.sort(['Date'], inplace=True)
         lst_Y =[]
         lStrTicker ='TICKER'
-
-
-        # compute rolling mean, stdev, bollinger
-        rollingMean =pd.rolling_mean(df['Adj Close'],window=20)
-        rollingMeanFifty =pd.rolling_mean(df['Adj Close'],window=50)
-
-        rollingStdev =pd.rolling_std(df['Adj Close'],window=20)
-
-        rollingMeanFifty.fillna(value=0,inplace=True)
-        rollingMean.fillna(value=0,inplace=True)
-        rollingStdev.fillna(value=0,inplace=True)
-
-        #rollingMean =rollingMean+10
-        #print(rollingMean)
-        #upper /lower bands are pandas series
-        upper_band, lower_band =get_bollinger_bands(rollingMean,rollingStdev )
-
-
-        #append additional stats into original dataframe
-        #first create dataframes
-        upper_band =pd.DataFrame(upper_band)
-        upper_band = pd.DataFrame(upper_band).reset_index()
-        upper_band.columns = ['Date', 'upper_band']
-        #name column
         
-        lower_band =pd.DataFrame(lower_band)
-        lower_band = pd.DataFrame(lower_band).reset_index()
-        lower_band.columns = ['Date', 'lower_band']
-
-        rollingMean=pd.DataFrame(rollingMean)
-        rollingMean = pd.DataFrame(rollingMean).reset_index()
-        rollingMean.columns = ['Date', 'rollingMean20']
-
-        if True:
-            df =df.merge(upper_band,how='inner',on=['Date'])
-            df =df.merge(lower_band,how='inner',on=['Date'])
-            #df =df.merge(rollingMean,how='inner',on=['Date'])
-            #TRUNCATE dataframe until point when rolling stats start, otherwise we will have
-            # zero for rolling mean , stdev
-            df =df[df['upper_band']>0]
-        
-        #compute diff between price and up/low bollingers
-        df['DiffercenceBtwn_upper_band'] =df['upper_band']-df['Adj Close']
-        df['DiffercenceBtwn_lower_band'] =df['Adj Close']-df['lower_band']
-
-        #remove bollingers now
-        del df['upper_band']
-        del df['lower_band']
+        #add in calculated features
+        df=fnComputeFeatures(df)
 
         iRowCtr =0
         #dfFilter =df[df['Date']<datetime.date(year=2015,month=9,day=6)]
@@ -88,12 +108,15 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         lRowPredictedPrice =pNumDaysAheadPredict
         df['Ticker'] =lStrTicker 
         result =[]
+        ##list explicitly used columns for features
+        #note that Date and Ticker are not used BUT needed for pivoting the dataframe
+        lstCols=[ 'Open','Close','High','Low','Volume','RealBody' ,'Color','Ticker','Date' ]
 
         while (iRowCtr+pNumDaysLookBack+pNumDaysAheadPredict)<=lEnd:
                 #for iRowCtr in range(0, lEnd):
                 lEndRow =iRowCtr+pNumDaysLookBack
                 #p = df[df['Date']<datetime.date(year=2015,month=9,day=6)].pivot(index='Ticker', columns='Date')
-                p = df[iRowCtr:lEndRow].pivot(index='Ticker', columns='Date')
+                p = df[iRowCtr:lEndRow][lstCols].pivot(index='Ticker', columns='Date')
 
                 result.append(list(p.T[lStrTicker][:]))
 
@@ -125,7 +148,7 @@ def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
         raise SystemExit
 
     #dfQuotes =pd.DataFrame(quotes,columns=['Date','Open','Adj Close','High','Low','Volume'])
-    dfQuotes =quotes[['Date','Open','Adj Close','High','Low','Volume']]
+    dfQuotes =quotes[['Date','Open','Close','Adj Close','High','Low','Volume']]
     return dfQuotes
 #df=pd.read_csv('..//StockData.csv')
 
@@ -135,11 +158,11 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     lTicker ="XOM"
 
     lNumDaysLookBack=pLookBackDays
-    lNumDaysAheadPredict=3      
+    lNumDaysAheadPredict=10
     #save data via pickle
     if pBlnUseSavedData==False:
         #train data
-        lStartDate=datetime.date(2001, 6, 6)
+        lStartDate=datetime.date(2002, 6, 6)
         lEndDate=datetime.date(2003, 12, 25)
 
         dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
@@ -178,7 +201,7 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     # fit the model and calculate its accuracy
     #{'C': 500000, 'gamma': 1e-06}
     #{'C': 1100000, 'gamma': 1e-07}
-    C=3400000
+    C=1400000
     gamma=.00002
     clfReg = svm.SVR(kernel='rbf', C=C,gamma=gamma,    epsilon =.001)
     #clfReg =MLPRegressor(activation='logistic')
@@ -251,7 +274,7 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
 
 
 if __name__=='__main__':
-        for i in range(25,26):
+        for i in range(40,100,2):
                 fnMain(i,False) #25 look back was best
                 print (i)
 
