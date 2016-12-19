@@ -15,8 +15,12 @@ import matplotlib.pyplot as plt
 import cPickle
 from sklearn.preprocessing import LabelEncoder  
 import numpy as np
+from textwrap import wrap
+from scipy.stats import linregress
+
 
 global lstCols
+lstCols=[]
 def get_bollinger_bands(rm, rstd):
 
 	upper_band=rm + (2*rstd)
@@ -31,6 +35,68 @@ def fnConvertSeriesToDf(pdSeries, pLstColumns):
     df.columns = pLstColumns
     return df
 
+def fnCalcNDayNetPriceChange(pDf,N=2):
+        #return dataframe pDf with N day net Adj closeprice change where N is numbrer days back
+        pDf[str(N)+'DayNetPriceChange'] =pDf['Adj Close'] -pDf['Adj Close'].shift(N)
+        return pDf
+
+def fnCalcAvgVolumeStats(pDf,N=10):
+        rollingAvgVol=pd.rolling_mean(pDf['Volume'],window=N)
+
+        rollingAvgVol=fnConvertSeriesToDf(rollingAvgVol,['Date', 'AvgVolume'])
+
+        pDf =pDf.merge(rollingAvgVol,how='left',on=['Date']).set_index(['Date'], drop=False)
+
+        pDf['DiffercenceBtwnAvgVol'] =pDf['Volume']-pDf['AvgVolume']
+
+        #compute whether stock went up on above avg volume or down on above avg
+
+        #up on above avg
+        pDf['UpDownVolumeChange']=''
+        pDf['UpDownVolumeChange'] =np.where( np.logical_and(pDf['Adj Close'] -pDf['Adj Close'].shift(1)>=0,pDf['DiffercenceBtwnAvgVol']>0),
+                                             'UpOnAboveAvg',pDf['UpDownVolumeChange'])
+        #down on above avg
+        pDf['UpDownVolumeChange'] =np.where( np.logical_and(pDf['Adj Close'] -pDf['Adj Close'].shift(1)<0,pDf['DiffercenceBtwnAvgVol']>0),
+                                             'DownOnAboveAvg',pDf['UpDownVolumeChange'])
+
+        #down on below avg
+        pDf['UpDownVolumeChange'] =np.where( np.logical_and(pDf['Adj Close'] -pDf['Adj Close'].shift(1)<0,pDf['DiffercenceBtwnAvgVol']<0),
+                                             'DownOnBelowAvg',pDf['UpDownVolumeChange'])
+        #up on below avg
+        pDf['UpDownVolumeChange'] =np.where( np.logical_and(pDf['Adj Close'] -pDf['Adj Close'].shift(1)>=0,pDf['DiffercenceBtwnAvgVol']<0),
+                                             'UpOnBelowAvg',pDf['UpDownVolumeChange'])
+
+        le = LabelEncoder()
+        le.fit(  pDf['UpDownVolumeChange'])
+        #encode publish time as it may not be able to fit in classifier otherwise.
+        pDf['UpDownVolumeChange']=le.transform(pDf['UpDownVolumeChange'])
+        
+        return pDf
+
+def fnWraplinregress(pValues):
+      iLen =len(pValues)
+      lXVals =range(iLen)
+      slope_0, intercept, r_value, p_value, std_err=linregress(lXVals, pValues)
+      return slope_0
+
+
+def fnCalculateSlope(pDf,N=10):
+     #calculate slope on a rolling basis    
+     #slope_0, intercept, r_value, p_value, std_err =\
+     #stats.linregress(pDf['Date'], pDf['Adj Close'])
+     rollingSlopeLow =pd.rolling_apply(pDf[['Low']],N,fnWraplinregress)
+     rollingSlopeLow=fnConvertSeriesToDf(rollingSlopeLow,['Date', 'LowSlope'])
+
+     rollingSlopeHi =pd.rolling_apply(pDf[['High']],N,fnWraplinregress)
+     rollingSlopeHi=fnConvertSeriesToDf(rollingSlopeHi,['Date', 'HighSlope'])
+
+     pDf =pDf.merge(rollingSlopeLow,how='left',on=['Date']).set_index(['Date'], drop=False)
+     pDf =pDf.merge(rollingSlopeHi  ,how='left',on=['Date']).set_index(['Date'], drop=False)
+     #need a 
+     #x.groupby('entity').apply(lambda v: linregress(v.year, v.value)[0])
+     #[0] means slope only
+     
+     return pDf
 
 def fnComputeCandleStickPattern(pDf):
    #If the high and low of a bar is higher than previous bar, then that bar is
@@ -38,18 +104,21 @@ def fnComputeCandleStickPattern(pDf):
    # than previous bar, then that bar is called an 'down bar' or an 'down day'
    #sourc: http://www.stock-trading-infocentre.com/bar-charts.html
 
-
+        pDf['Color']=np.where(pDf['Close'] >pDf['Open'] ,'WHITE','BLACK') #use numbers not colors
+        
         pDf['RealBody']=np.absolute(pDf['Close'] -pDf['Open'])/pDf['Open']*1
 
         #upper shadow
         pDf['UpperShadow']=np.where(pDf['Close'] >pDf['Open'], (pDf['Close'] -pDf['Open'])/(pDf['High']- pDf['Open']),
         (pDf['Open'] -pDf['Close'])/(pDf['High']- pDf['Close']))
 
+        pDf['UpperShadow']=pDf['UpperShadow']*1
         pDf['UpperShadow'].fillna(value=0,inplace=True)
         #lower shadow
         pDf['LowerShadow']=np.where(pDf['Close'] >pDf['Open'], (pDf['Close'] -pDf['Open'])/(pDf['Close']- pDf['Low']),
         (pDf['Open'] -pDf['Close'])/(pDf['Open']- pDf['Low']))
-        
+
+        pDf['LowerShadow']=pDf['LowerShadow']*1
         pDf['LowerShadow'].fillna(value=0,inplace=True)
         #'up bar
         pDf['BarType']=np.where(np.logical_and(pDf['High']>=pDf['High'].shift(1), pDf['Low']>=pDf['Low'].shift(1)),
@@ -66,7 +135,7 @@ def fnComputeCandleStickPattern(pDf):
         pDf['BarType']=np.where(np.logical_and(pDf['High']>pDf['High'].shift(1), pDf['Low']< pDf['Low'].shift(1)),
                                 'Outside',pDf['BarType'])
 
-        pDf['Color']=np.where(pDf['Close'] >pDf['Open'] ,'White','Black') #use numbers not colors
+        
 
         le = LabelEncoder()
         le.fit(  pDf['Color'])
@@ -78,7 +147,7 @@ def fnComputeCandleStickPattern(pDf):
 
         return pDf
 
-def fnComputeFeatures(pDf):
+def fnComputeFeatures(pDf,pNumDaysLookBack):
         #compute various historical features such as rolling mean, bollinger bands
         #candlestick patterns,etc.., 
         #returns dataframe with the features
@@ -86,10 +155,16 @@ def fnComputeFeatures(pDf):
 
         pDf=fnComputeCandleStickPattern(pDf)
 
-        rollingMean =pd.rolling_mean(pDf['Close'],window=20)
-        rollingMeanFifty =pd.rolling_mean(pDf['Close'],window=50)
+        pDf =fnCalcNDayNetPriceChange(pDf,2)
 
-        rollingStdev =pd.rolling_std(pDf['Close'],window=20)
+        pDf=fnCalcAvgVolumeStats(pDf,12)
+
+        pDf =fnCalculateSlope(pDf,pNumDaysLookBack)
+
+        rollingMean =pd.rolling_mean(pDf['Adj Close'],window=10)
+        rollingMeanFifty =pd.rolling_mean(pDf['Adj Close'],window=50)
+
+        rollingStdev =pd.rolling_std(pDf['Adj Close'],window=10) # CHANGED TO 10 DAY FROM research paper
 
         rollingMeanFifty.fillna(value=0,inplace=True)
         rollingMean.fillna(value=0,inplace=True)
@@ -99,29 +174,30 @@ def fnComputeFeatures(pDf):
         #rollingMean =rollingMean+10
         #print(rollingMean)
         #upper /lower bands are pandas series
-        #upper_band, lower_band =get_bollinger_bands(rollingMean,rollingStdev )
+        upper_band, lower_band =get_bollinger_bands(rollingMean,rollingStdev )
 
+        
 
         #append additional stats into original dataframe
         #first create dataframes
         #name column
-        #upper_band=fnConvertSeriesToDf(upper_band,['Date', 'upper_band'])
+        upper_band=fnConvertSeriesToDf(upper_band,['Date', 'upper_band'])
 
-        #lower_band=fnConvertSeriesToDf(lower_band,['Date', 'lower_band'])
+        lower_band=fnConvertSeriesToDf(lower_band,['Date', 'lower_band'])
         rollingStdev=fnConvertSeriesToDf(rollingStdev,['Date', 'rollingStdev20'])
         rollingMean=fnConvertSeriesToDf(rollingMean,['Date', 'rollingMean20'])
 
         rollingMeanFifty=fnConvertSeriesToDf(rollingMeanFifty,['Date', 'rollingMean50'])
 
-        pDf =pDf.merge(rollingMean,how='inner',on=['Date'])
-        pDf =pDf.merge(rollingStdev,how='inner',on=['Date'])
-        pDf =pDf.merge(rollingMeanFifty,how='inner',on=['Date'])
+        pDf =pDf.merge(rollingMean,how='inner',on=['Date'],right_index=True)
+        pDf =pDf.merge(rollingStdev,how='inner',on=['Date'],right_index=True)
+        pDf =pDf.merge(rollingMeanFifty,how='inner',on=['Date'],right_index=True)
 
         pDf =pDf[pDf['rollingMean50']>0]
 
-        if False:
-                pDf =pDf.merge(upper_band,how='inner',on=['Date'])
-                pDf =pDf.merge(lower_band,how='inner',on=['Date'])
+        if True:
+                pDf =pDf.merge(upper_band,how='inner',on=['Date'],right_index=True)
+                pDf =pDf.merge(lower_band,how='inner',on=['Date'],right_index=True)
                 #df =df.merge(rollingMean,how='inner',on=['Date'])
                 #TRUNCATE dataframe until point when rolling stats start, otherwise we will have
                 # zero for rolling mean , stdev
@@ -132,8 +208,8 @@ def fnComputeFeatures(pDf):
                 pDf['DiffercenceBtwn_lower_band'] =pDf['Close']-pDf['lower_band']
 
                 #remove bollingers now
-                del pDf['upper_band']
-                del pDf['lower_band']
+                #del pDf['upper_band']
+                #del pDf['lower_band']
     
 
         return pDf
@@ -149,7 +225,7 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         lStrTicker ='TICKER'
         
         #add in calculated features
-        df=fnComputeFeatures(df)
+        df=fnComputeFeatures(df,pNumDaysLookBack)
 
         iRowCtr =0
         #dfFilter =df[df['Date']<datetime.date(year=2015,month=9,day=6)]
@@ -163,9 +239,11 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         lstCols=[ 'Open','Close','High','Low','Volume','RealBody' ,'Ticker','Date',
                 'BarType','Color','UpperShadow','LowerShadow','rollingMean50','rollingMean20','rollingStdev20' ]
 
-        lstCols=[ 'Open','Close','High','Low','Volume','Ticker','Date',
-                'rollingMean50','rollingMean20','rollingStdev20','BarType' ,'Color','UpperShadow','LowerShadow']
-
+        lstCols=['DiffercenceBtwnAvgVol','AvgVolume','2DayNetPriceChange','Volume','Ticker','Date','Adj Close', #'BarType' ,'Color',
+                'rollingMean50','rollingMean20','rollingStdev20','Open','High','Low','UpDownVolumeChange']
+                 #'UpDownVolumeChange'
+                  #      ] # 'Open','High','Low', ,'upper_band','lower_band'
+        
         while (iRowCtr+pNumDaysLookBack+pNumDaysAheadPredict)<=lEnd:
                 #for iRowCtr in range(0, lEnd):
                 lEndRow =iRowCtr+pNumDaysLookBack
@@ -209,14 +287,15 @@ def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
 
 def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     blnGridSearch =False
-    lTicker ="AMZN"
-
+    global lstCols
+    lTicker ="COP" #SBUX
+        
     lNumDaysLookBack=pLookBackDays
-    lNumDaysAheadPredict=4
+    lNumDaysAheadPredict=10
     #save data via pickle
     if pBlnUseSavedData==False:
         #train data
-        lStartDate=datetime.date(2000, 1, 6)
+        lStartDate=datetime.date(2001, 1, 6)
         lEndDate=datetime.date(2004, 7, 1)
 
         dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
@@ -255,8 +334,9 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     # fit the model and calculate its accuracy
     #{'C': 500000, 'gamma': 1e-06}
     #{'C': 1100000, 'gamma': 1e-07}
-    C=1250000 #SVM Score: -11.1354870245
-    gamma=1e-05
+    C=1100000 #SVM Score: -11.1354870245 #'C': 1100000, 'gamma': 1e-06}
+    gamma=1e-06
+
     #{'C': 2000, 'gamma': 1e-05}
     clfReg = svm.SVR(kernel='rbf', C=C,gamma=gamma,    epsilon =.001)
     #clfReg =MLPRegressor(activation='logistic')
@@ -309,18 +389,24 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
 
     print('SVM Score: ' +str(score))
 
+
         
     plt.plot(y_test,label='Actual ' + lTicker)
     plt.plot(prediction,label='Predicted')
     #lNumDaysLookBack=30
+    if 'lstCols' in globals()==False:
+            lstCols=[]
     #lNumDaysAheadPredict=5
-    plt.suptitle(lTicker + ' SVR C: ' + str(C) + ' gamma ' +str(gamma) + ' lookback: '+str(lNumDaysLookBack) +
-                 ' daysAhead: ' + str(lNumDaysAheadPredict) + ' SVM Score: '+ str(score) +' features: ' +str(lstCols),
-                fontsize=10, fontweight='bold')
+    lstrTitle ="\n".join(wrap(lTicker + ' SVR C: ' + str(C) + ' gamma ' +str(gamma) + ' lookback: '+str(lNumDaysLookBack) +
+                 ' daysAhead: ' + str(lNumDaysAheadPredict) + ' SVM Score: '+ str(score) +' features: ' +str(lstCols)))
+                              
+    plt.suptitle(lstrTitle,
+                fontsize=11, fontweight='bold')
     
     legend = plt.legend(loc='upper center', shadow=True, fontsize='x-large')
-    
-    plt.show()
+
+    if True:
+            plt.show()
     #print(test) result=  rbf_svm.predict(X_test)
 
     #?result[10:20]
@@ -329,7 +415,7 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
 
 
 if __name__=='__main__':
-        for i in range(75,76):
+        for i in range(22,23):
                 fnMain(i,False) #25 look back was best
                 print (i)
 
