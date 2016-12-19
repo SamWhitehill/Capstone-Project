@@ -81,22 +81,27 @@ def fnWraplinregress(pValues):
 
 
 def fnCalculateSlope(pDf,N=10):
-     #calculate slope on a rolling basis    
-     #slope_0, intercept, r_value, p_value, std_err =\
-     #stats.linregress(pDf['Date'], pDf['Adj Close'])
-     rollingSlopeLow =pd.rolling_apply(pDf[['Low']],N,fnWraplinregress)
-     rollingSlopeLow=fnConvertSeriesToDf(rollingSlopeLow,['Date', 'LowSlope'])
+        #calculate slope on a rolling basis    
+        #slope_0, intercept, r_value, p_value, std_err =\
+        #stats.linregress(pDf['Date'], pDf['Adj Close'])
+        rollingSlopeLow =pd.rolling_apply(pDf[['Low']],N,fnWraplinregress)
+        rollingSlopeLow=fnConvertSeriesToDf(rollingSlopeLow,['Date', 'LowSlope'])
 
-     rollingSlopeHi =pd.rolling_apply(pDf[['High']],N,fnWraplinregress)
-     rollingSlopeHi=fnConvertSeriesToDf(rollingSlopeHi,['Date', 'HighSlope'])
+        rollingSlopeClose =pd.rolling_apply(pDf[['Adj Close']],N,fnWraplinregress)
+        rollingSlopeClose=fnConvertSeriesToDf(rollingSlopeClose,['Date', 'CloseSlope'])
 
-     pDf =pDf.merge(rollingSlopeLow,how='left',on=['Date']).set_index(['Date'], drop=False)
-     pDf =pDf.merge(rollingSlopeHi  ,how='left',on=['Date']).set_index(['Date'], drop=False)
-     #need a 
-     #x.groupby('entity').apply(lambda v: linregress(v.year, v.value)[0])
-     #[0] means slope only
-     
-     return pDf
+        rollingSlopeHi =pd.rolling_apply(pDf[['High']],N,fnWraplinregress)
+        rollingSlopeHi=fnConvertSeriesToDf(rollingSlopeHi,['Date', 'HighSlope'])
+
+        pDf =pDf.merge(rollingSlopeLow,how='left',on=['Date']).set_index(['Date'], drop=False)
+        pDf =pDf.merge(rollingSlopeHi  ,how='left',on=['Date']).set_index(['Date'], drop=False)
+        pDf =pDf.merge(rollingSlopeClose  ,how='left',on=['Date']).set_index(['Date'], drop=False)
+        
+        #need a 
+        #x.groupby('entity').apply(lambda v: linregress(v.year, v.value)[0])
+        #[0] means slope only
+
+        return pDf
 
 def fnComputeCandleStickPattern(pDf):
    #If the high and low of a bar is higher than previous bar, then that bar is
@@ -159,7 +164,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack):
 
         pDf=fnCalcAvgVolumeStats(pDf,12)
 
-        pDf =fnCalculateSlope(pDf,pNumDaysLookBack)
+        pDf =fnCalculateSlope(pDf,pNumDaysLookBack+10) #pNumDaysLookBack try 32
 
         rollingMean =pd.rolling_mean(pDf['Adj Close'],window=10)
         rollingMeanFifty =pd.rolling_mean(pDf['Adj Close'],window=50)
@@ -239,8 +244,10 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         lstCols=[ 'Open','Close','High','Low','Volume','RealBody' ,'Ticker','Date',
                 'BarType','Color','UpperShadow','LowerShadow','rollingMean50','rollingMean20','rollingStdev20' ]
 
-        lstCols=['DiffercenceBtwnAvgVol','AvgVolume','2DayNetPriceChange','Volume','Ticker','Date','Adj Close', #'BarType' ,'Color',
-                'rollingMean50','rollingMean20','rollingStdev20','Open','High','Low','UpDownVolumeChange']
+        lstCols=['DiffercenceBtwnAvgVol','AvgVolume','Volume','2DayNetPriceChange','Ticker','Date','Adj Close', #'BarType' ,'Color', Volume
+                'rollingMean20','rollingStdev20','Open','High','Low','UpDownVolumeChange','CloseSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
+                #,'LowSlope', 'HighSlope'
+                # ]
                  #'UpDownVolumeChange'
                   #      ] # 'Open','High','Low', ,'upper_band','lower_band'
         
@@ -288,7 +295,7 @@ def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
 def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     blnGridSearch =False
     global lstCols
-    lTicker ="COP" #SBUX
+    lTicker ="CAT" #SBUX
         
     lNumDaysLookBack=pLookBackDays
     lNumDaysAheadPredict=10
