@@ -164,7 +164,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack):
 
         pDf=fnCalcAvgVolumeStats(pDf,12)
 
-        pDf =fnCalculateSlope(pDf,pNumDaysLookBack+10) #pNumDaysLookBack try 32
+        pDf =fnCalculateSlope(pDf,4) #pNumDaysLookBack try 32
 
         rollingMean =pd.rolling_mean(pDf['Adj Close'],window=10)
         rollingMeanFifty =pd.rolling_mean(pDf['Adj Close'],window=50)
@@ -245,7 +245,7 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
                 'BarType','Color','UpperShadow','LowerShadow','rollingMean50','rollingMean20','rollingStdev20' ]
 
         lstCols=['DiffercenceBtwnAvgVol','AvgVolume','Volume','2DayNetPriceChange','Ticker','Date','Adj Close', #'BarType' ,'Color', Volume
-                'rollingMean20','rollingStdev20','Open','High','Low','UpDownVolumeChange','CloseSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
+                'rollingMean20','rollingStdev20','Open','High','Low','UpDownVolumeChange','CloseSlope' ]#'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
                 #,'LowSlope', 'HighSlope'
                 # ]
                  #'UpDownVolumeChange'
@@ -295,7 +295,7 @@ def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
 def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     blnGridSearch =False
     global lstCols
-    lTicker ="CAT" #SBUX
+    lTicker ="CTSH" #SBUX
         
     lNumDaysLookBack=pLookBackDays
     lNumDaysAheadPredict=10
@@ -341,8 +341,9 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     # fit the model and calculate its accuracy
     #{'C': 500000, 'gamma': 1e-06}
     #{'C': 1100000, 'gamma': 1e-07}
-    C=1100000 #SVM Score: -11.1354870245 #'C': 1100000, 'gamma': 1e-06}
-    gamma=1e-06
+    #{'C': 45000, 'gamma': 1e-05} for CAT (caterpillar stock, 12.19.2016
+    C=135000#SVM Score: -11.1354870245 #'C': 1100000, 'gamma': 1e-06}
+    gamma=1e-05
 
     #{'C': 2000, 'gamma': 1e-05}
     clfReg = svm.SVR(kernel='rbf', C=C,gamma=gamma,    epsilon =.001)
@@ -363,8 +364,8 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
 
     X_train =scaler.transform(X_train)  
 
-    parameters={'C':[500,1000,2000,10000,45000,80000,120000, 160000,225000,500000,750000,1100000,2500000,15000000],
-                'gamma':[.01,.001,0001,.0004,.0007,1e-5,1e-6,1e-7,1e-8]}
+    parameters={'C':[500,1000,2000,10000,45000,80000,120000, 160000,225000,500000,750000,1100000,1500000, 1800000,2500000,3200000],
+                'gamma':[.01,.001,0001,.0004,.0007,.0002, .00015, 1e-5,1e-6,1e-7,1e-8,]}
     #12.17.2016 clf.best_params_{'C': 1100000, 'gamma': 1e-07}
     clf =clfReg
 
@@ -422,7 +423,7 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
 
 
 if __name__=='__main__':
-        for i in range(22,23):
+        for i in range(8,9):
                 fnMain(i,False) #25 look back was best
                 print (i)
 
