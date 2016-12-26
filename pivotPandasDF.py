@@ -8,7 +8,7 @@ from pandas.io import data as web
 import datetime as dt
 from sklearn import preprocessing
 from sklearn.grid_search import GridSearchCV
-#from sklearn.neural_network import MLPRegressor
+from sklearn.neural_network import MLPRegressor
 #from neon.data import IMDB
 from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
@@ -17,6 +17,7 @@ from sklearn.preprocessing import LabelEncoder
 import numpy as np
 from textwrap import wrap
 from scipy.stats import linregress
+
 
 
 global lstCols
@@ -168,6 +169,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack):
         #candlestick patterns,etc.., 
         #returns dataframe with the features
         # compute rolling mean, stdev, bollinger
+        
 
         pDf=fnComputeCandleStickPattern(pDf)
 
@@ -177,7 +179,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack):
 
         pDf =fnCalculateSlope(pDf,4) #pNumDaysLookBack try 32
 
-        pDf=moving_average_convergence(pDf)
+        #pDf=moving_average_convergence(pDf)
 
         rollingMean =pd.rolling_mean(pDf['Close'],window=pNumDaysLookBack)
         rollingMeanFifty =pd.rolling_mean(pDf['Close'],window=50)
@@ -243,7 +245,9 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         lStrTicker ='TICKER'
         
         #add in calculated features
-        df=fnComputeFeatures(df,pNumDaysLookBack)
+        #calculated features are NOT adding any value to prediction via SVR, or MLP ??
+        if False:
+                df=fnComputeFeatures(df,pNumDaysLookBack)
 
         iRowCtr =0
         #dfFilter =df[df['Date']<datetime.date(year=2015,month=9,day=6)]
@@ -258,14 +262,14 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
                 'BarType','Color','UpperShadow','LowerShadow','rollingMean50','rollingMean20','rollingStdev20' ]
 
         lstCols=['DiffercenceBtwnAvgVol','AvgVolume','Volume','2DayNetPriceChange','Ticker','Date', 'BarType' ,'Color', #'Adj Close',
-                'rollingMean20','rollingStdev20','Adj Close','UpDownVolumeChange','CloseSlope','upper_band','lower_band',
-                 'UpperShadow', 'LowerShadow']#'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
+                'rollingMean20','rollingStdev20','Adj Close','Open','High','Low','UpDownVolumeChange','CloseSlope'] #,'upper_band','lower_band',
+                 #'UpperShadow', 'LowerShadow']#'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
                 #,'LowSlope', 'HighSlope'
                 # ]
                  #'UpDownVolumeChange'
                   #      ] # 'Open','High','Low', ,'upper_band','lower_band'
 
-        #lstCols=['Adj Close','Date','Ticker']
+        lstCols=['Adj Close','Date','Ticker','Open','High','Low']
         while (iRowCtr+pNumDaysLookBack+pNumDaysAheadPredict)<=lEnd:
                 #for iRowCtr in range(0, lEnd):
                 lEndRow =iRowCtr+pNumDaysLookBack
@@ -310,7 +314,8 @@ def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
 def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     blnGridSearch =False
     global lstCols
-    lTicker ="CTSH" #SBUX
+    lTicker ="SPY" #SBUX
+    lRandomState =89
         
     lNumDaysLookBack=pLookBackDays
     lNumDaysAheadPredict=10
@@ -361,10 +366,19 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     gamma=1e-05
 
     #{'C': 2000, 'gamma': 1e-05}
-    clfReg = svm.SVR(kernel='rbf', C=C,gamma=gamma,    epsilon =.001)
+    #clfReg = svm.SVR(kernel='rbf', C=C,gamma=gamma,    epsilon =.001)  
     #clfReg =MLPRegressor(activation='logistic')
+    lLyrSz =111  #int(lLyrSz*1.1),hidden_layer_sizes=(1200,lLyrSz,lLyrSz,lLyrSz,lLyrSz,lLyrSz)
+    clfReg =MLPRegressor(hidden_layer_sizes=(111,lLyrSz,lLyrSz,lLyrSz,lLyrSz),
+      activation='relu', solver='sgd', alpha=0.0001,random_state=lRandomState,
+      batch_size='auto', learning_rate='invscaling', learning_rate_init=0.01,momentum=.009, max_iter=20000)
+        #cannot use tanh activation!
 
+    #clfReg.out_activation_='tanh'
+    #print(clfReg.out_activation_) -NOT supported
 
+        #notes for MLP: reducing learning_rate_init improves SVR score greatly, -1.16
+        
     X_train =train[0]
     y_train =train[1]
 
@@ -420,13 +434,16 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     if 'lstCols' in globals()==False:
             lstCols=[]
     #lNumDaysAheadPredict=5
-    lstrTitle ="\n".join(wrap(lTicker + ' SVR C: ' + str(C) + ' gamma ' +str(gamma) + ' lookback: '+str(lNumDaysLookBack) +
+    lStrClassifier =repr(clf)
+    lstrTitle ="\n".join(wrap('Classifier ' + lStrClassifier +  ' Stock: ' +lTicker + ' SVR C: ' + str(C) + ' gamma ' +str(gamma) + ' lookback: '+str(lNumDaysLookBack) +
                  ' daysAhead: ' + str(lNumDaysAheadPredict) + ' SVM Score: '+ str(score) +' features: ' +str(lstCols)))
-                              
+
+
+    
     plt.suptitle(lstrTitle,
                 fontsize=11, fontweight='bold')
     
-    legend = plt.legend(loc='upper center', shadow=True, fontsize='x-large')
+    legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
 
     if True:
             plt.show()
@@ -439,7 +456,7 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
 
 if __name__=='__main__':
         for i in range(8,9):
-                fnMain(i,False) #25 look back was best
+                fnMain(i,True) #25 look back was best
                 print (i)
 
 
