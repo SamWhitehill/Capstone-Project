@@ -42,6 +42,7 @@ def fnCalcNDayNetPriceChange(pDf,N=2):
 
 def fnCalcAvgVolumeStats(pDf,N=10):
         rollingAvgVol=pd.rolling_mean(pDf['Volume'],window=N)
+        
 
         rollingAvgVol=fnConvertSeriesToDf(rollingAvgVol,['Date', 'AvgVolume'])
 
@@ -79,6 +80,16 @@ def fnWraplinregress(pValues):
       slope_0, intercept, r_value, p_value, std_err=linregress(lXVals, pValues)
       return slope_0
 
+def moving_average_convergence(pDf, nslow=26, nfast=12):
+    pDf['emaslow'] = pd.ewma(pDf["Close"], span=nslow, freq="D",min_periods=nslow)
+    pDf['emafast'] = pd.ewma(pDf["Close"], span=nfast, freq="D",min_periods=nfast)
+
+    #emaslow = pd.ewma(group, span=nslow, min_periods=1)
+    #emafast = pd.ewma(group, span=nfast, min_periods=1)
+    #result = pd.DataFrame({'MACD': emafast-emaslow, 'emaSlw': emaslow, 'emaFst': emafast})
+    pDf['MACD']=pDf['emafast'] - pDf['emaslow']
+
+    return pDf
 
 def fnCalculateSlope(pDf,N=10):
         #calculate slope on a rolling basis    
@@ -162,14 +173,16 @@ def fnComputeFeatures(pDf,pNumDaysLookBack):
 
         pDf =fnCalcNDayNetPriceChange(pDf,2)
 
-        pDf=fnCalcAvgVolumeStats(pDf,12)
+        pDf=fnCalcAvgVolumeStats(pDf,pNumDaysLookBack)
 
         pDf =fnCalculateSlope(pDf,4) #pNumDaysLookBack try 32
 
-        rollingMean =pd.rolling_mean(pDf['Adj Close'],window=10)
-        rollingMeanFifty =pd.rolling_mean(pDf['Adj Close'],window=50)
+        pDf=moving_average_convergence(pDf)
 
-        rollingStdev =pd.rolling_std(pDf['Adj Close'],window=10) # CHANGED TO 10 DAY FROM research paper
+        rollingMean =pd.rolling_mean(pDf['Close'],window=pNumDaysLookBack)
+        rollingMeanFifty =pd.rolling_mean(pDf['Close'],window=50)
+
+        rollingStdev =pd.rolling_std(pDf['Close'],window=pNumDaysLookBack) # CHANGED TO 10 DAY FROM research paper
 
         rollingMeanFifty.fillna(value=0,inplace=True)
         rollingMean.fillna(value=0,inplace=True)
@@ -244,13 +257,15 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         lstCols=[ 'Open','Close','High','Low','Volume','RealBody' ,'Ticker','Date',
                 'BarType','Color','UpperShadow','LowerShadow','rollingMean50','rollingMean20','rollingStdev20' ]
 
-        lstCols=['DiffercenceBtwnAvgVol','AvgVolume','Volume','2DayNetPriceChange','Ticker','Date','Adj Close', #'BarType' ,'Color', Volume
-                'rollingMean20','rollingStdev20','Open','High','Low','UpDownVolumeChange','CloseSlope' ]#'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
+        lstCols=['DiffercenceBtwnAvgVol','AvgVolume','Volume','2DayNetPriceChange','Ticker','Date', 'BarType' ,'Color', #'Adj Close',
+                'rollingMean20','rollingStdev20','Adj Close','UpDownVolumeChange','CloseSlope','upper_band','lower_band',
+                 'UpperShadow', 'LowerShadow']#'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
                 #,'LowSlope', 'HighSlope'
                 # ]
                  #'UpDownVolumeChange'
                   #      ] # 'Open','High','Low', ,'upper_band','lower_band'
-        
+
+        #lstCols=['Adj Close','Date','Ticker']
         while (iRowCtr+pNumDaysLookBack+pNumDaysAheadPredict)<=lEnd:
                 #for iRowCtr in range(0, lEnd):
                 lEndRow =iRowCtr+pNumDaysLookBack
@@ -270,7 +285,7 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
 
 def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
     # (Year, month, day) tuples suffice as args for quotes_historical_yahoo
-    #dateStart = (pStartDate.year, pStartDate.month, pStartDate.day)
+    #dateStart = (pStartDate.year, pStartDate.month, pStartDate.day)    
     #dateEnd = (pEndDate.year, pEndDate.month, pEndDate.day)
 
     dateStart =dt.datetime(pStartDate.year, pStartDate.month, pStartDate.day)
