@@ -18,7 +18,10 @@ import numpy as np
 from textwrap import wrap
 from scipy.stats import linregress
 
+from scipy.optimize import fmin_l_bfgs_b
+from scipy.optimize import differential_evolution
 
+from sklearn.neighbors import KNeighborsRegressor
 
 global lstCols
 lstCols=[]
@@ -35,6 +38,21 @@ def fnConvertSeriesToDf(pdSeries, pLstColumns):
     df = pd.DataFrame(pdSeries).reset_index()
     df.columns = pLstColumns
     return df
+
+def fnCalcRSI(price, n=14):
+    ''' rsi indicator '''
+    gain = (price-price.shift(1)).fillna(0) # calculate price gain with previous day, first row nan is filled with 0
+
+    def rsiCalc(p):
+        # subfunction for calculating rsi for one lookback period
+        avgGain = p[p>0].sum()/n
+        avgLoss = -p[p<0].sum()/n 
+        rs = avgGain/avgLoss
+        return 100 - 100/(1+rs)
+
+    # run for all periods with rolling_apply
+    return pd.rolling_apply(gain,n,rsiCalc) 
+
 
 def fnCalcNDayNetPriceChange(pDf,N=2):
         #return dataframe pDf with N day net Adj closeprice change where N is numbrer days back
@@ -96,17 +114,17 @@ def fnCalculateSlope(pDf,N=10):
         #calculate slope on a rolling basis    
         #slope_0, intercept, r_value, p_value, std_err =\
         #stats.linregress(pDf['Date'], pDf['Adj Close'])
-        rollingSlopeLow =pd.rolling_apply(pDf[['Low']],N,fnWraplinregress)
-        rollingSlopeLow=fnConvertSeriesToDf(rollingSlopeLow,['Date', 'LowSlope'])
+        #rollingSlopeLow =pd.rolling_apply(pDf[['Low']],N,fnWraplinregress)
+        #rollingSlopeLow=fnConvertSeriesToDf(rollingSlopeLow,['Date', 'LowSlope'])
 
         rollingSlopeClose =pd.rolling_apply(pDf[['Adj Close']],N,fnWraplinregress)
         rollingSlopeClose=fnConvertSeriesToDf(rollingSlopeClose,['Date', 'CloseSlope'])
 
-        rollingSlopeHi =pd.rolling_apply(pDf[['High']],N,fnWraplinregress)
-        rollingSlopeHi=fnConvertSeriesToDf(rollingSlopeHi,['Date', 'HighSlope'])
+        #rollingSlopeHi =pd.rolling_apply(pDf[['High']],N,fnWraplinregress)
+        #rollingSlopeHi=fnConvertSeriesToDf(rollingSlopeHi,['Date', 'HighSlope'])
 
-        pDf =pDf.merge(rollingSlopeLow,how='left',on=['Date']).set_index(['Date'], drop=False)
-        pDf =pDf.merge(rollingSlopeHi  ,how='left',on=['Date']).set_index(['Date'], drop=False)
+        #pDf =pDf.merge(rollingSlopeLow,how='left',on=['Date']).set_index(['Date'], drop=False)
+        #pDf =pDf.merge(rollingSlopeHi  ,how='left',on=['Date']).set_index(['Date'], drop=False)
         pDf =pDf.merge(rollingSlopeClose  ,how='left',on=['Date']).set_index(['Date'], drop=False)
         
         #need a 
@@ -164,27 +182,34 @@ def fnComputeCandleStickPattern(pDf):
 
         return pDf
 
-def fnComputeFeatures(pDf,pNumDaysLookBack):
+def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback):
         #compute various historical features such as rolling mean, bollinger bands
         #candlestick patterns,etc.., 
         #returns dataframe with the features
         # compute rolling mean, stdev, bollinger
         
-
-        pDf=fnComputeCandleStickPattern(pDf)
+        #not using candlestick patterns any longer
+        #pDf=fnComputeCandleStickPattern(pDf)
 
         pDf =fnCalcNDayNetPriceChange(pDf,2)
 
-        pDf=fnCalcAvgVolumeStats(pDf,pNumDaysLookBack)
+        pDf=fnCalcAvgVolumeStats(pDf,20)
 
-        pDf =fnCalculateSlope(pDf,4) #pNumDaysLookBack try 32
+        pDf =fnCalculateSlope(pDf,pSlopeLookback) #pNumDaysLookBack try 32
 
-        #pDf=moving_average_convergence(pDf)
+        pDf=moving_average_convergence(pDf)
 
-        rollingMean =pd.rolling_mean(pDf['Close'],window=pNumDaysLookBack)
-        rollingMeanFifty =pd.rolling_mean(pDf['Close'],window=50)
+        pDf['RSI'] =fnCalcRSI(pDf['Close'])
 
-        rollingStdev =pd.rolling_std(pDf['Close'],window=pNumDaysLookBack) # CHANGED TO 10 DAY FROM research paper
+        #RSI decision fields, rsi >= 70 overbought, rsi <= 30 oversold
+        pDf['RSIDecision'] =np.where(pDf['RSI']  >=70,1,0)
+        pDf['RSIDecision'] =np.where(pDf['RSI'] <=30,-1,pDf['RSIDecision'])
+
+
+        rollingMean =pd.rolling_mean(pDf['Adj Close'],window=20)
+        rollingMeanFifty =pd.rolling_mean(pDf['Adj Close'],window=50)
+
+        rollingStdev =pd.rolling_std(pDf['Adj Close'],window=20) # CHANGED TO 10 DAY FROM research paper
 
         rollingMeanFifty.fillna(value=0,inplace=True)
         rollingMean.fillna(value=0,inplace=True)
@@ -194,16 +219,17 @@ def fnComputeFeatures(pDf,pNumDaysLookBack):
         #rollingMean =rollingMean+10
         #print(rollingMean)
         #upper /lower bands are pandas series
-        upper_band, lower_band =get_bollinger_bands(rollingMean,rollingStdev )
-
-        
+        if False:
+            upper_band, lower_band =get_bollinger_bands(rollingMean,rollingStdev )
 
         #append additional stats into original dataframe
         #first create dataframes
         #name column
-        upper_band=fnConvertSeriesToDf(upper_band,['Date', 'upper_band'])
+        if False:
+            upper_band=fnConvertSeriesToDf(upper_band,['Date', 'upper_band'])
 
-        lower_band=fnConvertSeriesToDf(lower_band,['Date', 'lower_band'])
+            lower_band=fnConvertSeriesToDf(lower_band,['Date', 'lower_band'])
+
         rollingStdev=fnConvertSeriesToDf(rollingStdev,['Date', 'rollingStdev20'])
         rollingMean=fnConvertSeriesToDf(rollingMean,['Date', 'rollingMean20'])
 
@@ -215,7 +241,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack):
 
         pDf =pDf[pDf['rollingMean50']>0]
 
-        if True:
+        if False:
                 pDf =pDf.merge(upper_band,how='inner',on=['Date'],right_index=True)
                 pDf =pDf.merge(lower_band,how='inner',on=['Date'],right_index=True)
                 #df =df.merge(rollingMean,how='inner',on=['Date'])
@@ -235,7 +261,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack):
         return pDf
 
 def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
-                                   pNumDaysLookBack):
+                                   pNumDaysLookBack,pSlopeLookback):
         global lstCols
         #sort by date asc
         df=pDataFrameStockData
@@ -246,8 +272,8 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         
         #add in calculated features
         #calculated features are NOT adding any value to prediction via SVR, or MLP ??
-        if False:
-                df=fnComputeFeatures(df,pNumDaysLookBack)
+        if True:
+                df=fnComputeFeatures(df,pNumDaysLookBack,pSlopeLookback)
 
         iRowCtr =0
         #dfFilter =df[df['Date']<datetime.date(year=2015,month=9,day=6)]
@@ -261,15 +287,16 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         lstCols=[ 'Open','Close','High','Low','Volume','RealBody' ,'Ticker','Date',
                 'BarType','Color','UpperShadow','LowerShadow','rollingMean50','rollingMean20','rollingStdev20' ]
 
-        lstCols=['DiffercenceBtwnAvgVol','AvgVolume','Volume','2DayNetPriceChange','Ticker','Date', 'BarType' ,'Color', #'Adj Close',
-                'rollingMean20','rollingStdev20','Adj Close','Open','High','Low','UpDownVolumeChange','CloseSlope'] #,'upper_band','lower_band',
-                 #'UpperShadow', 'LowerShadow']#'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
+        lstCols=['DiffercenceBtwnAvgVol','2DayNetPriceChange','Ticker','Date','Volume',  #'Adj Close',\
+                'rollingMean50','rollingMean20','rollingStdev20','Adj Close','High','Low',
+                'UpDownVolumeChange','CloseSlope','MACD','RSI','RSIDecision'
+                 ]#'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
                 #,'LowSlope', 'HighSlope'
                 # ]
                  #'UpDownVolumeChange'
                   #      ] # 'Open','High','Low', ,'upper_band','lower_band'
 
-        lstCols=['Adj Close','Date','Ticker','Open','High','Low']
+        #lstCols=['rollingStdev20','Date','Ticker','Adj Close','CloseSlope','2DayNetPriceChange','rollingMean20'] #,'Open','High','Low']
         while (iRowCtr+pNumDaysLookBack+pNumDaysAheadPredict)<=lEnd:
                 #for iRowCtr in range(0, lEnd):
                 lEndRow =iRowCtr+pNumDaysLookBack
@@ -310,8 +337,37 @@ def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
     return dfQuotes
 #df=pd.read_csv('..//StockData.csv')
 
+def fnMainWrapper(*pArgs):
+        pNumLayers=pArgs[0][0]
+        pNeurons=pArgs[0][1]
+        pNumLayers=int(pNumLayers)
+        pNeurons=int(pNeurons)
+        print ("layers, neurons " ,pNumLayers,pNeurons)
+        result=fnMain(8,True,pNumLayers,pNeurons)
+        return result
 
-def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
+def fnMainWrapperSVRPoly(*pArgs):
+        pC=int(pArgs[0][0])
+        pGamma=pArgs[0][1]
+        pDegrees=int(pArgs[0][2])
+
+        
+       
+        print ("C, gamma, degreees " ,pC, pGamma, pDegrees)
+        result=fnMain(8,True,pC, pGamma, pDegrees)
+        return result
+
+def fnMainWrapperSVRRBF(*pArgs):
+        pC=int(pArgs[0][0])
+        pGamma=pArgs[0][1]
+        pSlopeLookback=int(pArgs[0][2])
+       
+        print ("C, gamma,pSlopeLookback " ,pC, pGamma,pSlopeLookback)
+        result=fnMain(8,True,pC, pGamma, 1,pSlopeLookback)
+        return result
+
+#def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pNumLayers=1, pNeurons=1):
+def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,pSlopeLookback=10):
     blnGridSearch =False
     global lstCols
     lTicker ="SPY" #SBUX
@@ -336,9 +392,9 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
         #fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
          #                                  pNumDaysLookBack)
 
-        train=fnGetHistoricalStockDataForSVM(dfQuotes,lNumDaysAheadPredict , lNumDaysLookBack)
+        train=fnGetHistoricalStockDataForSVM(dfQuotes,lNumDaysAheadPredict , lNumDaysLookBack,pSlopeLookback)
 
-        testingData=fnGetHistoricalStockDataForSVM(dfQuotesTest,lNumDaysAheadPredict , lNumDaysLookBack)
+        testingData=fnGetHistoricalStockDataForSVM(dfQuotesTest,lNumDaysAheadPredict , lNumDaysLookBack,pSlopeLookback)
 
         cPickle.dump(train, open('train.p', 'wb')) 
         cPickle.dump(testingData, open('testingData.p', 'wb')) 
@@ -366,12 +422,20 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     gamma=1e-05
 
     #{'C': 2000, 'gamma': 1e-05}
-    #clfReg = svm.SVR(kernel='rbf', C=C,gamma=gamma,    epsilon =.001)  
+    clfReg = svm.SVR(kernel='rbf', C=pC,gamma=pGamma,    epsilon =.01)
+    #clfReg = svm.SVR(kernel='poly', C=pC,gamma=pGamma,degree=pDegrees,    epsilon =.001)  
     #clfReg =MLPRegressor(activation='logistic')
-    lLyrSz =111  #int(lLyrSz*1.1),hidden_layer_sizes=(1200,lLyrSz,lLyrSz,lLyrSz,lLyrSz,lLyrSz)
-    clfReg =MLPRegressor(hidden_layer_sizes=(111,lLyrSz,lLyrSz,lLyrSz,lLyrSz),
-      activation='relu', solver='sgd', alpha=0.0001,random_state=lRandomState,
-      batch_size='auto', learning_rate='invscaling', learning_rate_init=0.01,momentum=.009, max_iter=20000)
+    ##h =111  #int(lLyrSz*1.1),hidden_layer_sizes=(1200,lLyrSz,lLyrSz,lLyrSz,lLyrSz,lLyrSz)
+    #pNumLayers=4
+    #pNeurons=15
+    #pNeurons=[pNeurons]*pNumLayers
+    pNeurons=[85,285,285,285,285,285]
+    
+    tupHiddenLayers =tuple(pNeurons)
+    
+    #clfReg =MLPRegressor(hidden_layer_sizes=tupHiddenLayers,
+     # activation='relu', solver='adam', alpha=0.0001,random_state=lRandomState,
+      #batch_size='auto', learning_rate='constant', learning_rate_init=0.01)
         #cannot use tanh activation!
 
     #clfReg.out_activation_='tanh'
@@ -445,7 +509,7 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     
     legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
 
-    if True:
+    if False:
             plt.show()
     #print(test) result=  rbf_svm.predict(X_test)
 
@@ -453,12 +517,30 @@ def fnMain(pLookBackDays=60, pBlnUseSavedData=False):
     #y_test[10:20]
     #?rbf_svm.fit(X_train, y_train).score(X_test,y_test)
 
+    return testScore
 
 if __name__=='__main__':
+        lNeurons=285
+        numLayers=6
+        #tup =tuple(h*6)
+        result =None
+        initGuess=[numLayers,lNeurons]
+        #lBounds=[(5,9),(20,700)]
+        lBounds=[(150000,3400000),(.00000000001,.001),(5,12)]
+        #*MUST USE *args when calling a function from fmin_l_bfgs_b
+        #fnMainWrapperSVRRBF([502811,0.00011855044037783498, 7]) #('C, gamma,pSlopeLookback ', 502811, 0.00011855044037783498, 7)
+        #result=fmin_l_bfgs_b(func=fnMainWrapperSVRPoly,x0=initGuess,approx_grad=True,disp=1,bounds=lBounds,epsilon=1)
+        result=differential_evolution(func=fnMainWrapperSVRRBF,bounds=lBounds,disp=1)
+        print(result)
+
         for i in range(8,9):
-                fnMain(i,True) #25 look back was best
+                #fnMain(i,True,h,numLayers) #25 look back was best
+                #fnMainWrapper(initGuess)
                 print (i)
 
 
     #?clf.best_params_
-#{'C': 40000, 'gamma': 1e-06}
+#{'C': 40000, 'gamma': 1e-0
+#('layers	 neurons '	9	 224) using nearly all features, with MLP gives SVM of .14
+
+#6 layers, 285 neurons
