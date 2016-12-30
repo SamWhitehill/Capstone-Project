@@ -287,8 +287,8 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         lstCols=[ 'Open','Close','High','Low','Volume','RealBody' ,'Ticker','Date',
                 'BarType','Color','UpperShadow','LowerShadow','rollingMean50','rollingMean20','rollingStdev20' ]
 
-        lstCols=['DiffercenceBtwnAvgVol','2DayNetPriceChange','Ticker','Date','Volume',  #'Adj Close',\
-                'rollingMean50','rollingMean20','rollingStdev20','Adj Close','High','Low',
+        lstCols=['DiffercenceBtwnAvgVol','2DayNetPriceChange','Ticker','Date',  #'Adj Close',\
+                'rollingMean50','rollingMean20','rollingStdev20','Adj Close',
                 'UpDownVolumeChange','CloseSlope','MACD','RSI','RSIDecision'
                  ]#'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
                 #,'LowSlope', 'HighSlope'
@@ -361,33 +361,63 @@ def fnMainWrapperSVRRBF(*pArgs):
         pC=int(pArgs[0][0])
         pGamma=pArgs[0][1]
         pSlopeLookback=int(pArgs[0][2])
-       
-        print ("C, gamma,pSlopeLookback " ,pC, pGamma,pSlopeLookback)
-        result=fnMain(8,True,pC, pGamma, 1,pSlopeLookback)
+        pLookback=int(pArgs[0][3])
+        pDaysAhead=int(pArgs[0][4])
+
+        lBlnSavedData = True
+        print ("Using Saved Data =" + str(   lBlnSavedData))    
+        print ("C, gamma,pSlopeLookback,pLookback,pDaysAhead" ,pC, pGamma,pSlopeLookback,pLookback,pDaysAhead)
+        result=fnMain(pLookback,lBlnSavedData,pC, pGamma, 1,pSlopeLookback,pDaysAhead)
         return result
 
 #def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pNumLayers=1, pNeurons=1):
-def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,pSlopeLookback=10):
+def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,pSlopeLookback=10,pDaysAhead=10):
     blnGridSearch =False
     global lstCols
     lTicker ="SPY" #SBUX
     lRandomState =89
         
     lNumDaysLookBack=pLookBackDays
-    lNumDaysAheadPredict=10
-    #save data via pickle
+    lNumDaysAheadPredict=pDaysAhead
+
     if pBlnUseSavedData==False:
+        #GET DATA FROM WEB
         #train data
-        lStartDate=datetime.date(2001, 1, 6)
+        lStartDate=datetime.date(2001, 7, 6)
         lEndDate=datetime.date(2004, 7, 1)
 
         dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
 
         #test data
         lStartDate=lEndDate #datetime.date(2003, 12, 25)
-        lEndDate=datetime.date(2005, 7, 1)
+        lEndDate=datetime.date(2005, 12, 1)
 
         dfQuotesTest =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
+
+        cPickle.dump(dfQuotes, open('dfQuotes.p', 'wb')) 
+        cPickle.dump(dfQuotesTest, open('dfQuotesTest.p', 'wb')) 
+        
+    else:
+        #GET DATA FROM PICKLE/SAVED FILES
+        #use previously saved data
+        lstrPath="C:\\Udacity\\NanoDegree\\Capstone Project\\MLTrading\\"
+        dfQuotes = cPickle.load(open(lstrPath+'dfQuotes.p', 'rb'))
+        dfQuotesTest = cPickle.load(open(lstrPath+'dfQuotesTest.p', 'rb'))
+
+            
+    #save data via pickle
+    if True: #pBlnUseSavedData==False:
+        #train data
+        #lStartDate=datetime.date(2001, 1, 6)
+        #lEndDate=datetime.date(2004, 7, 1)
+
+        #dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
+
+        #test data
+        #lStartDate=lEndDate #datetime.date(2003, 12, 25)
+        #lEndDate=datetime.date(2005, 7, 1)
+
+        #dfQuotesTest =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
 
         #fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
          #                                  pNumDaysLookBack)
@@ -396,27 +426,16 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,pSl
 
         testingData=fnGetHistoricalStockDataForSVM(dfQuotesTest,lNumDaysAheadPredict , lNumDaysLookBack,pSlopeLookback)
 
-        cPickle.dump(train, open('train.p', 'wb')) 
-        cPickle.dump(testingData, open('testingData.p', 'wb')) 
+        #cPickle.dump(train, open('train.p', 'wb')) 
+        #cPickle.dump(testingData, open('testingData.p', 'wb')) 
   
     else:
+        pass
          #use previously saved data
-        train = cPickle.load(open('train.p', 'rb'))
-        testingData = cPickle.load(open('testingData.p', 'rb'))
-
-    #11 day lookback, 10 day ahead, scores .75, SVR(C=1100000, cache_size=200, coef0=0.0, degree=3, epsilon=0.001,
-    #gamma=1e-07, kernel='rbf', max_iter=-1, shrinking=True, tol=0.001,
-    #verbose=False)
-    #25 look back, 5 days out scores .42
-    #18 look back, 10 days out scores .38
-    # clf= svm.SVR(kernel='rbf', C=99999,gamma=1e-7,    epsilon =.001) continued...
-    #18 look back, 10 days out scores  .55
-    #15 look back, 10 days out svm.SVR(kernel='rbf', C=99999,gamma=1e-7,    epsilon =.001), scores .65
+        #train = cPickle.load(open('train.p', 'rb'))
+        #testingData = cPickle.load(open('testingData.p', 'rb'))
 
 
-    # fit the model and calculate its accuracy
-    #{'C': 500000, 'gamma': 1e-06}
-    #{'C': 1100000, 'gamma': 1e-07}
     #{'C': 45000, 'gamma': 1e-05} for CAT (caterpillar stock, 12.19.2016
     C=135000#SVM Score: -11.1354870245 #'C': 1100000, 'gamma': 1e-06}
     gamma=1e-05
@@ -526,7 +545,14 @@ if __name__=='__main__':
         result =None
         initGuess=[numLayers,lNeurons]
         #lBounds=[(5,9),(20,700)]
-        lBounds=[(150000,3400000),(.00000000001,.001),(5,12)]
+        lBounds=[(80000,1250000),(.0000000001,.001),(5,35),(7,45),(39,45)]
+        #pC=int(pArgs[0][0])
+        #pGamma=pArgs[0][1]
+        #pSlopeLookback=int(pArgs[0][2])
+        #pLookback=int(pArgs[0][3])
+        #pDaysAhead=int(pArgs[0][4])
+        print ('running with days ahead 10-23')
+        #tried (10,23) on days aheAD, AND 10 had best R ^2, 22 days is not valid
         #*MUST USE *args when calling a function from fmin_l_bfgs_b
         #fnMainWrapperSVRRBF([502811,0.00011855044037783498, 7]) #('C, gamma,pSlopeLookback ', 502811, 0.00011855044037783498, 7)
         #result=fmin_l_bfgs_b(func=fnMainWrapperSVRPoly,x0=initGuess,approx_grad=True,disp=1,bounds=lBounds,epsilon=1)
