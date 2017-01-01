@@ -39,6 +39,29 @@ def fnConvertSeriesToDf(pdSeries, pLstColumns):
     df.columns = pLstColumns
     return df
 
+def fnCalculateNewMACD():
+    #source -https://www.quantopian.com/posts/technical-analysis-indicators-without-talib-code
+    #https://github.com/panpanpandas/ultrafinance/blob/master/ultrafinance/pyTaLib/pandasImpl.py
+    pass
+
+
+def fnCalculateEMV(pDf, nDays):
+    #Ease of movement
+    #source: https://www.quantinsti.com/blog/build-technical-indicators-in-python/
+     dm = ((data['High'] + data['Low'])/2) - ((data['High'].shift(1) + data['Low'].shift(1))/2)
+     br = (data['Volume'] / 100000000) / ((data['High'] - data['Low']))
+     EVM = dm / br 
+     EVM_MA = pd.Series(pd.rolling_mean(EVM, ndays), name = 'EMV') 
+     data = data.join(EVM_MA) 
+     return data 
+
+# Force Index 
+def fnCalcForceIndex(data, ndays): 
+     FI = pd.Series(data['Close'].diff(ndays) * data['Volume'], name = 'ForceIndex') 
+     data = data.join(FI) 
+     return data
+
+
 def fnCalcRSI(price, n=14):
     ''' rsi indicator '''
     gain = (price-price.shift(1)).fillna(0) # calculate price gain with previous day, first row nan is filled with 0
@@ -99,7 +122,7 @@ def fnWraplinregress(pValues):
       slope_0, intercept, r_value, p_value, std_err=linregress(lXVals, pValues)
       return slope_0
 
-def moving_average_convergence(pDf, nslow=26, nfast=12):
+def moving_average_convergence(pDf, nslow=13, nfast=8): #26,12
     pDf['emaslow'] = pd.ewma(pDf["Close"], span=nslow, freq="D",min_periods=nslow)
     pDf['emafast'] = pd.ewma(pDf["Close"], span=nfast, freq="D",min_periods=nfast)
 
@@ -189,7 +212,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback):
         # compute rolling mean, stdev, bollinger
         
         #not using candlestick patterns any longer
-        #pDf=fnComputeCandleStickPattern(pDf)
+        pDf=fnComputeCandleStickPattern(pDf)
 
         pDf =fnCalcNDayNetPriceChange(pDf,2)
 
@@ -201,6 +224,11 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback):
 
         pDf['RSI'] =fnCalcRSI(pDf['Close'])
 
+        pDf['EMV']=fnCalculateEMV(pDf, pSlopeLookback)
+
+        pDf['ForceIndex']=fnCalcForceIndex(pDf,pNumDaysLookBack)
+
+
         #RSI decision fields, rsi >= 70 overbought, rsi <= 30 oversold
         pDf['RSIDecision'] =np.where(pDf['RSI']  >=70,1,0)
         pDf['RSIDecision'] =np.where(pDf['RSI'] <=30,-1,pDf['RSIDecision'])
@@ -209,7 +237,8 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback):
         rollingMean =pd.rolling_mean(pDf['Adj Close'],window=20)
         rollingMeanFifty =pd.rolling_mean(pDf['Adj Close'],window=50)
 
-        rollingStdev =pd.rolling_std(pDf['Adj Close'],window=20) # CHANGED TO 10 DAY FROM research paper
+        #26 day std dev gives best results
+        rollingStdev =pd.rolling_std(pDf['Adj Close'],window=26) # CHANGED TO 10 DAY FROM research paper
 
         rollingMeanFifty.fillna(value=0,inplace=True)
         rollingMean.fillna(value=0,inplace=True)
@@ -219,13 +248,13 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback):
         #rollingMean =rollingMean+10
         #print(rollingMean)
         #upper /lower bands are pandas series
-        if False:
+        if True:
             upper_band, lower_band =get_bollinger_bands(rollingMean,rollingStdev )
 
         #append additional stats into original dataframe
         #first create dataframes
         #name column
-        if False:
+        if True:
             upper_band=fnConvertSeriesToDf(upper_band,['Date', 'upper_band'])
 
             lower_band=fnConvertSeriesToDf(lower_band,['Date', 'lower_band'])
@@ -241,7 +270,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback):
 
         pDf =pDf[pDf['rollingMean50']>0]
 
-        if False:
+        if True:
                 pDf =pDf.merge(upper_band,how='inner',on=['Date'],right_index=True)
                 pDf =pDf.merge(lower_band,how='inner',on=['Date'],right_index=True)
                 #df =df.merge(rollingMean,how='inner',on=['Date'])
@@ -284,19 +313,25 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         result =[]
         ##list explicitly used columns for features
         #note that Date and Ticker are not used BUT needed for pivoting the dataframe
-        lstCols=[ 'Open','Close','High','Low','Volume','RealBody' ,'Ticker','Date',
-                'BarType','Color','UpperShadow','LowerShadow','rollingMean50','rollingMean20','rollingStdev20' ]
+        #lstCols=[ 'Open','Close','High','Low','Volume','RealBody' ,'Ticker','Date',
+        #        'BarType','Color','UpperShadow','LowerShadow','rollingMean50','rollingMean20','rollingStdev20' ]
 
         lstCols=['DiffercenceBtwnAvgVol','2DayNetPriceChange','Ticker','Date',  #'Adj Close',\
-                'rollingMean50','rollingMean20','rollingStdev20','Adj Close',
-                'UpDownVolumeChange','CloseSlope','MACD','RSI','RSIDecision'
-                 ]#'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
+                'rollingStdev20','Adj Close','Open','High','Low','Volume','upper_band','lower_band',
+                'MACD','RSI','RSIDecision','RealBody','Color' #realbody and color actually hurt the R^2 on SPY.
+                 ]
+        lstCols=['2DayNetPriceChange','Ticker','Date',  #'Adj Close',\ DiffercenceBtwnAvgVol
+                'rollingStdev20','Open','High','Low','Volume', #
+                 'upper_band','lower_band','ForceIndex','EMV',
+                'RSI','MACD' ] #,'RSIDecision',
+                 
+        #'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
                 #,'LowSlope', 'HighSlope'
                 # ]
                  #'UpDownVolumeChange'
                   #      ] # 'Open','High','Low', ,'upper_band','lower_band'
-
-        #lstCols=['rollingStdev20','Date','Ticker','Adj Close','CloseSlope','2DayNetPriceChange','rollingMean20'] #,'Open','High','Low']
+        print ('Features - ' +str(lstCols))
+        
         while (iRowCtr+pNumDaysLookBack+pNumDaysAheadPredict)<=lEnd:
                 #for iRowCtr in range(0, lEnd):
                 lEndRow =iRowCtr+pNumDaysLookBack
@@ -360,13 +395,13 @@ def fnMainWrapperSVRPoly(*pArgs):
 def fnMainWrapperSVRRBF(*pArgs):
         pC=int(pArgs[0][0])
         pGamma=pArgs[0][1]
-        pSlopeLookback=int(pArgs[0][2])
-        pLookback=int(pArgs[0][3])
-        pDaysAhead=int(pArgs[0][4])
+        pSlopeLookback=1 #int(pArgs[0][2])
+        pLookback=int(pArgs[0][2])
+        pDaysAhead=int(pArgs[0][3])
 
         lBlnSavedData = True
         print ("Using Saved Data =" + str(   lBlnSavedData))    
-        print ("C, gamma,pSlopeLookback,pLookback,pDaysAhead" ,pC, pGamma,pSlopeLookback,pLookback,pDaysAhead)
+        print ("C, gamma,pLookback,pDaysAhead" ,pC, pGamma,pLookback,pDaysAhead)
         result=fnMain(pLookback,lBlnSavedData,pC, pGamma, 1,pSlopeLookback,pDaysAhead)
         return result
 
@@ -390,7 +425,7 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,pSl
 
         #test data
         lStartDate=lEndDate #datetime.date(2003, 12, 25)
-        lEndDate=datetime.date(2005, 12, 1)
+        lEndDate=datetime.date(2006, 12, 1)
 
         dfQuotesTest =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
 
@@ -528,7 +563,7 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,pSl
     
     legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
 
-    if False:
+    if True:
             plt.show()
     #print(test) result=  rbf_svm.predict(X_test)
 
@@ -543,9 +578,9 @@ if __name__=='__main__':
         numLayers=6
         #tup =tuple(h*6)
         result =None
-        initGuess=[numLayers,lNeurons]
+        #initGuess=[numLayers,lNeurons]
         #lBounds=[(5,9),(20,700)]
-        lBounds=[(80000,1250000),(.0000000001,.001),(5,35),(7,45),(39,45)]
+        lBounds=[(50000,1250000),(.000000001,.001),(7,120),(7,45)]
         #pC=int(pArgs[0][0])
         #pGamma=pArgs[0][1]
         #pSlopeLookback=int(pArgs[0][2])
@@ -556,7 +591,10 @@ if __name__=='__main__':
         #*MUST USE *args when calling a function from fmin_l_bfgs_b
         #fnMainWrapperSVRRBF([502811,0.00011855044037783498, 7]) #('C, gamma,pSlopeLookback ', 502811, 0.00011855044037783498, 7)
         #result=fmin_l_bfgs_b(func=fnMainWrapperSVRPoly,x0=initGuess,approx_grad=True,disp=1,bounds=lBounds,epsilon=1)
-        result=differential_evolution(func=fnMainWrapperSVRRBF,bounds=lBounds,disp=1)
+        fnMainWrapperSVRRBF([ 626358, 6.9010057794611319e-06, 9, 8])
+
+
+        #result=differential_evolution(func=fnMainWrapperSVRRBF,bounds=lBounds,disp=1)
         print(result)
 
         for i in range(8,9):
