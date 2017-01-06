@@ -19,6 +19,7 @@ from textwrap import wrap
 from scipy.stats import linregress
 
 from scipy.optimize import fmin_l_bfgs_b
+#using diff evol to parameter tune.
 from scipy.optimize import differential_evolution
 
 from sklearn.neighbors import KNeighborsRegressor
