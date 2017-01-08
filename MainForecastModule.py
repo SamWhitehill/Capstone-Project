@@ -19,7 +19,7 @@ from sklearn.preprocessing import LabelEncoder
 import numpy as np
 from textwrap import wrap
 from scipy.stats import linregress
-
+import matplotlib.dates as mdates
 from scipy.optimize import fmin_l_bfgs_b
 from scipy.optimize import differential_evolution
 
@@ -217,13 +217,13 @@ def fnComputeCandleStickPattern(pDf):
 
         return pDf
 
-def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8):
+def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookback=11,pSegments=4):
         #compute various historical features such as rolling mean, bollinger bands
         #candlestick patterns,etc.., 
         #returns dataframe with the features
         # compute rolling mean, stdev, bollinger
         
-        dfSR, lstCols =fnGetSupportResistance(pDf,10,pDaysAhead)
+        dfSR, lstCols =fnGetSupportResistance(pDf,pSRLookback,pDaysAhead,pSegments)
         pDf =pDf.merge(dfSR,how='inner',on=['Date'],right_index=True)
         #not using candlestick patterns any longer
         #pDf=fnComputeCandleStickPattern(pDf)
@@ -232,7 +232,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8):
 
         pDf=fnCalcAvgVolumeStats(pDf,20)
 
-        pDf =fnCalculateSlope(pDf,pSlopeLookback) #pNumDaysLookBack try 32
+        #pDf =fnCalculateSlope(pDf,pSlopeLookback) #pNumDaysLookBack try 32
 
         pDf=moving_average_convergence(pDf)
 
@@ -285,7 +285,8 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8):
         pDf =pDf.merge(rollingMeanFifty,how='inner',on=['Date'],right_index=True)
 
         #CANNOT HAVE any Nans, must all be valid number so cut off records with invalid Nans.
-        pDf =pDf[ pd.notnull(pDf['VolumeSlope'])]
+        if 'VolumeSlope' in pDf.columns:
+            pDf =pDf[ pd.notnull(pDf['VolumeSlope'])]
         pDf =pDf[ pd.notnull(pDf['EMV'])]
         pDf =pDf[ pd.notnull(pDf['MACD'])]
         
@@ -321,7 +322,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8):
         return pDf, lstCols
 
 def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
-                                   pNumDaysLookBack,pSlopeLookback):
+                                   pNumDaysLookBack,pSlopeLookback,pSRLookback,pSegments):
         global lstCols
         #sort by date asc
         df=pDataFrameStockData
@@ -333,7 +334,8 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         #add in calculated features
         #calculated features are NOT adding any value to prediction via SVR, or MLP ??
         if True:
-                df, lstSRCols=fnComputeFeatures(df,pNumDaysLookBack,pSlopeLookback,pNumDaysAheadPredict)
+                df, lstSRCols=fnComputeFeatures(df,pNumDaysLookBack,pSlopeLookback,
+                                                pNumDaysAheadPredict,pSRLookback,pSegments)
 
         iRowCtr =0
         #dfFilter =df[df['Date']<datetime.date(year=2015,month=9,day=6)]
@@ -352,9 +354,9 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         #        'MACD','RSI','RSIDecision','RealBody','Color' #realbody and color actually hurt the R^2 on SPY.
         #         ]'DailyLogReturn',
         lstCols=['2DayNetPriceChange','Ticker','Date', 'Adj Close','rollingMean20',# DiffercenceBtwnAvgVol
-                'rollingStdev20','High','Low','Open','Volume' ,'VolumeSlope', #
+                'rollingStdev20','High','Low','Open','Volume', # 'DiffercenceBtwnAvgVol',
                  #'EMV','ForceIndex', #'CloseSlope',
-                 'RSI']+lstSRCols # 'MACD']+lstSRCols # ['S1','S2','S3','S4','R1','R2','R3','R4']
+                 'RSI'] +lstSRCols # 'MACD']+lstSRCols # ['S1','S2','S3','S4','R1','R2','R3','R4']
                  #['Min1','Min2','Min3','Min4','Min5','Max1','Max2','Max3','Max4','Max5'] #lstSRCols #,'RSIDecision',
                  
         #'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
@@ -378,7 +380,7 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
 
 
 
-        return result, lst_Y
+        return result, lst_Y, df
 
 
 def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
@@ -430,15 +432,19 @@ def fnMainWrapperSVRRBF(*pArgs):
         pSlopeLookback=int(pArgs[0][2])
         pLookback=int(pArgs[0][3])
         pDaysAhead=int(pArgs[0][4])
+        pSRLookback=int(pArgs[0][5])
+        pSegments=int(pArgs[0][6])
 
-        lBlnSavedData = True
+        lBlnSavedData = False
         print ("Using Saved Data =" + str(   lBlnSavedData))    
-        print ("pC, pGamma,pSlopeLookback,pLookback,pDaysAhead" ,pC, pGamma,pSlopeLookback,pLookback,pDaysAhead)
-        result=fnMain(pLookback,lBlnSavedData,pC, pGamma, 1,pSlopeLookback,pDaysAhead)
+        print ("pC, pGamma,pSlopeLookback,pLookback,pDaysAhead,pSRLookback,pSegments" ,
+               pC, pGamma,pSlopeLookback,pLookback,pDaysAhead,pSRLookback,pSegments)
+        result=fnMain(pLookback,lBlnSavedData,pC, pGamma, 1,pSlopeLookback,pDaysAhead,pSRLookback,pSegments)
         return result
 
 #def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pNumLayers=1, pNeurons=1):
-def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,pSlopeLookback=10,pDaysAhead=10):
+def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1, 
+           pSlopeLookback=10,pDaysAhead=10,pSRLookback=11,pSegments=4):
     blnGridSearch =False
     global lstCols
     lTicker ="SPY" #SBUX
@@ -450,14 +456,14 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,pSl
     if pBlnUseSavedData==False:
         #GET DATA FROM WEB
         #train data
-        lStartDate=datetime.date(2001, 7, 6)
-        lEndDate=datetime.date(2004, 7, 1)
+        lStartDate=datetime.date(2012, 9, 6)
+        lEndDate=datetime.date(2014, 12, 1)
 
         dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
 
         #test data
         lStartDate=lEndDate #datetime.date(2003, 12, 25)
-        lEndDate=datetime.date(2006, 12, 1)
+        lEndDate=datetime.date(2016, 12, 30)
 
         dfQuotesTest =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
 
@@ -489,9 +495,10 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,pSl
         #fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
          #                                  pNumDaysLookBack)
 
-        train=fnGetHistoricalStockDataForSVM(dfQuotes,lNumDaysAheadPredict , lNumDaysLookBack,pSlopeLookback)
+        #3rd item is a data frame of dates.
+        train=fnGetHistoricalStockDataForSVM(dfQuotes,lNumDaysAheadPredict , lNumDaysLookBack,pSlopeLookback,pSRLookback,pSegments)
 
-        testingData=fnGetHistoricalStockDataForSVM(dfQuotesTest,lNumDaysAheadPredict , lNumDaysLookBack,pSlopeLookback)
+        testingData=fnGetHistoricalStockDataForSVM(dfQuotesTest,lNumDaysAheadPredict , lNumDaysLookBack,pSlopeLookback,pSRLookback,pSegments)
 
         #cPickle.dump(train, open('train.p', 'wb')) 
         #cPickle.dump(testingData, open('testingData.p', 'wb')) 
@@ -560,6 +567,8 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,pSl
         print('lookback: ' +str(lNumDaysLookBack))
     X_test =testingData[0]
     y_test =testingData[1]
+    #grab the data frame to use the dates for plotting on graph.
+    pDataFrame =testingData[2]
 
     X_test =scaler.transform(X_test)  
     
@@ -579,9 +588,22 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,pSl
     print('SVM Score: ' +str(score))
 
 
-        
-    plt.plot(y_test,label='Actual ' + lTicker)
-    plt.plot(prediction,label='Predicted')
+    #need to trim the data frame dates to match length 
+    lStartDate =len(pDataFrame)-len(y_test)
+    pDataFrame=pDataFrame[lStartDate:]
+
+    #plt.plot(pDataFrame['Date'],y_test,label='Actual ' + lTicker)
+    plt.plot_date(pDataFrame['Date'], y_test, 'b-',label='Actual ' + lTicker)
+    plt.plot_date(pDataFrame['Date'], prediction, 'g-',label='Predicted')
+    #plt.plot(pDataFrame['Date']) 
+    #ax.xaxis.set_minor_locator(months)
+    #fig.autofmt_xdate()
+    #plt.plot(prediction,label='Predicted')
+   
+    plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=33))
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m-%d-%Y'))
+    plt.gcf().autofmt_xdate()
+
     #lNumDaysLookBack=30
     if 'lstCols' in globals()==False:
             lstCols=[]
@@ -609,13 +631,16 @@ if __name__=='__main__':
         result =None
         #initGuess=[numLayers,lNeurons]
         #lBounds=[(5,9),(20,700)]
-        lBounds=[(50000,1250000),(.000000001,.003),(7,40),(7,85),(7,50)]
+        lBounds=[(50000,1250000),(.000000001,.003),(7,40),(7,40),(7,25),(8,25) , (2,7)]
         #def fnMainWrapperSVRRBF(*pArgs):
-        #        pC=int(pArgs[0][0])
-        #        pGamma=pArgs[0][1]
-        #        pSlopeLookback=int(pArgs[0][2])
-        #        pLookback=int(pArgs[0][3])
-        #        pDaysAhead=int(pArgs[0][4])
+        #pC=int(pArgs[0][0])
+        #pGamma=pArgs[0][1]
+        #pSlopeLookback=int(pArgs[0][2])
+        #pLookback=int(pArgs[0][3])
+        #pDaysAhead=int(pArgs[0][4])
+        #pSRLookback=int(pArgs[0][5])
+        #pSegments=int(pArgs[0][6])
+
 
         #tried (10,23) on days aheAD, AND 10 had best R ^2, 22 days is not valid
         #*MUST USE *args when calling a function from fmin_l_bfgs_b
@@ -623,8 +648,8 @@ if __name__=='__main__':
         #result=fmin_l_bfgs_b(func=fnMainWrapperSVRPoly,x0=initGuess,approx_grad=True,disp=1,bounds=lBounds,epsilon=1)
         #('C, gamma,pLookback,pDaysAhead', 60984, 0.00023225165833289416, 8, 34)
         #Best peformance is longer lookback on overall and shorter on S&R.
-        fnMainWrapperSVRRBF([343338, 7.1987125404345681e-08, 10, 30, 7])
-
+        #fnMainWrapperSVRRBF([343338, 7.1987125404345681e-08, 10, 30, 7])
+        fnMainWrapperSVRRBF([943158, 6.8637330837212959e-06, 20, 7, 8, 9, 2])
         #fnMainWrapperSVRRBF([ 60984, 0.00023225165833289416, 8, 34])
         #fnMainWrapperSVRRBF([343338, 7.1987125404345681e-08, 10, 21, 9])
 
