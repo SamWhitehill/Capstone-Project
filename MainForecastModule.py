@@ -1,4 +1,5 @@
 import  BuildTrendLines as trendy
+from sklearn.model_selection import TimeSeriesSplit
 from SupportAndResistance  import fnGetSupportResistance
 import math
 from sklearn import svm
@@ -6,7 +7,7 @@ import pandas as pd
 import datetime
 from matplotlib.finance import quotes_historical_yahoo_ohlc, candlestick_ohlc,\
     volume_overlay2,volume_overlay3
-from pandas.io import data as web
+from pandas_datareader import data as web
 import datetime as dt
 from sklearn import preprocessing
 from sklearn.grid_search import GridSearchCV
@@ -222,9 +223,11 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookb
         #candlestick patterns,etc.., 
         #returns dataframe with the features
         # compute rolling mean, stdev, bollinger
+        lstCols=None
         
-        dfSR, lstCols =fnGetSupportResistance(pDf,pSRLookback,pDaysAhead,pSegments)
-        pDf =pDf.merge(dfSR,how='inner',on=['Date'],right_index=True)
+        #dfSR, lstCols =fnGetSupportResistance(pDf,pSRLookback,pDaysAhead,pSegments)
+
+        #pDf =pDf.merge(dfSR,how='inner',on=['Date'],right_index=True)
         #not using candlestick patterns any longer
         #pDf=fnComputeCandleStickPattern(pDf)
 
@@ -293,13 +296,14 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookb
         #ensure no NULL support /resistance levels, remove first n records to NOT cheat!
         lstSR =lstCols #['S1','S2','S3','S4','R1','R2','R3','R4']
         #any 1 of these SR items could be null
-        for item in lstSR:
-            #fill blanks support with 0, blank resist with large num
-            if item[0]=='S' or item[0]=='Min':
-                pDf[item].fillna(value=0,inplace=True)
-            else:
-                pDf[item].fillna(value=10e4,inplace=True)
-            #pDf =pDf[ pd.notnull(pDf[item])]
+        if lstSR !=None:
+            for item in lstSR:
+                #fill blanks support with 0, blank resist with large num
+                if item[0]=='S' or item[0]=='Min':
+                    pDf[item].fillna(value=0,inplace=True)
+                else:
+                    pDf[item].fillna(value=10e4,inplace=True)
+                #pDf =pDf[ pd.notnull(pDf[item])]
 
 
         if True:
@@ -356,7 +360,7 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         lstCols=['2DayNetPriceChange','Ticker','Date', 'Adj Close','rollingMean20',# DiffercenceBtwnAvgVol
                 'rollingStdev20','High','Low','Open','Volume', # 'DiffercenceBtwnAvgVol',
                  #'EMV','ForceIndex', #'CloseSlope',
-                 'RSI'] +lstSRCols # 'MACD']+lstSRCols # ['S1','S2','S3','S4','R1','R2','R3','R4']
+                 'RSI'] # +lstSRCols # 'MACD']+lstSRCols # ['S1','S2','S3','S4','R1','R2','R3','R4']
                  #['Min1','Min2','Min3','Min4','Min5','Max1','Max2','Max3','Max4','Max5'] #lstSRCols #,'RSIDecision',
                  
         #'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
@@ -435,29 +439,67 @@ def fnMainWrapperSVRRBF(*pArgs):
         pSRLookback=int(pArgs[0][5])
         pSegments=int(pArgs[0][6])
 
-        lBlnSavedData = False
+        lBlnSavedData = True
         print ("Using Saved Data =" + str(   lBlnSavedData))    
         print ("pC, pGamma,pSlopeLookback,pLookback,pDaysAhead,pSRLookback,pSegments" ,
                pC, pGamma,pSlopeLookback,pLookback,pDaysAhead,pSRLookback,pSegments)
         result=fnMain(pLookback,lBlnSavedData,pC, pGamma, 1,pSlopeLookback,pDaysAhead,pSRLookback,pSegments)
         return result
 
+def fnGetNaturalLogPrices(pDf):
+    #return the data frame with natural log of open, hi, low , close prices
+    #this should make it better for time series analysis
+    lstFlds =['Adj Close','Close','Open','High']
+    for fld in lstFlds:
+        pDf[fld] =np.log( pDf[fld] )
+
+    return pDf
+
+def fnGetCVIndices(pDf):
+    #return the CV param for use in GridSearchCV
+    #this is needed as time series cannot have random shuffling
+    tscv = TimeSeriesSplit(n_splits=3)
+
+    #reducing size as this can cause index overflow error
+    maxLen =min(len(pDf),550)
+    pDf=pDf[0:maxLen]
+
+    #cv requires identical number o
+    groups = pDf.groupby(pDf['Date'].dt.year).groups
+    # {2012: [0, 1], 2013: [2], 2014: [3], 2015: [4, 5]}
+    sorted_groups = [value for (key, value) in sorted(groups.items())] 
+    # [[0, 1], [2], [3], [4, 5]]
+
+    #cv = [(sorted_groups[i] + sorted_groups[i+1], sorted_groups[i+2])
+    #      for i in range(len(sorted_groups)-2)]
+    #This looks like this:
+    tup1=( [sorted_groups[0]] ,[sorted_groups[2]] )
+    tup2=( [sorted_groups[1]] ,[sorted_groups[2]] )
+    tup3=( [sorted_groups[0]] ,[sorted_groups[1]] )
+    #tup2=( [sorted_groups[0],sorted_groups[1],[sorted_groups[2]] )
+    cv =[tup1,tup2,tup3]
+    return cv
+    #[([0, 1, 2], [3]),  # idxs of first split as (train, test) tuple
+    # ([2, 3], [4, 5])]  # idxs of second split as (train, test) tuple
+
 #def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pNumLayers=1, pNeurons=1):
 def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1, 
            pSlopeLookback=10,pDaysAhead=10,pSRLookback=11,pSegments=4):
-    blnGridSearch =False
+    blnGridSearch =True
     global lstCols
     lTicker ="SPY" #SBUX
     lRandomState =89
-        
+    lBlnUseNaturalLog =True
+
     lNumDaysLookBack=pLookBackDays
     lNumDaysAheadPredict=pDaysAhead
+    lstrPath="C:\\Udacity\\NanoDegree\\Capstone Project\\MLTrading\\"
 
     if pBlnUseSavedData==False:
         #GET DATA FROM WEB
         #train data
-        lStartDate=datetime.date(2012, 9, 6)
-        lEndDate=datetime.date(2014, 12, 1)
+        lStartDate=datetime.date(2008, 9, 6)
+        lEndDate=datetime.date(2012, 12, 1)
 
         dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
 
@@ -467,13 +509,13 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
 
         dfQuotesTest =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
 
-        cPickle.dump(dfQuotes, open('dfQuotes.p', 'wb')) 
-        cPickle.dump(dfQuotesTest, open('dfQuotesTest.p', 'wb')) 
+        cPickle.dump(dfQuotes, open(lstrPath+'dfQuotes.p', 'wb')) 
+        cPickle.dump(dfQuotesTest, open(lstrPath+'dfQuotesTest.p', 'wb')) 
         
     else:
         #GET DATA FROM PICKLE/SAVED FILES
         #use previously saved data
-        lstrPath="C:\\Udacity\\NanoDegree\\Capstone Project\\MLTrading\\"
+        
         dfQuotes = cPickle.load(open(lstrPath+'dfQuotes.p', 'rb'))
         dfQuotesTest = cPickle.load(open(lstrPath+'dfQuotesTest.p', 'rb'))
 
@@ -483,6 +525,11 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
         #train data
         #lStartDate=datetime.date(2001, 1, 6)
         #lEndDate=datetime.date(2004, 7, 1)
+
+        ############################################
+        #use natural log of prices to stabilize variance
+        dfQuotes =fnGetNaturalLogPrices(dfQuotes)
+        dfQuotesTest =fnGetNaturalLogPrices(dfQuotesTest)
 
         #dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
 
@@ -550,13 +597,20 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
 
     X_train =scaler.transform(X_train)  
 
-    parameters={'C':[500,1000,2000,10000,45000,80000,120000, 160000,225000,500000,750000,1100000,1500000, 1800000,2500000,3200000],
-                'gamma':[.01,.001,0001,.0004,.0007,.0002, .00015, 1e-5,1e-6,1e-7,1e-8,]}
+    listC =list(range(10000,750000,10000))
+    lStep =(.01-.0000001)/120
+    listGamma =list(np.arange(.0000001,.01,lStep))
+
+    parameters={'C':listC,
+                'gamma':listGamma}
     #12.17.2016 clf.best_params_{'C': 1100000, 'gamma': 1e-07}
     clf =clfReg
 
+    #CVData =fnGetCVIndices(dfQuotes)
+    tscv = TimeSeriesSplit(n_splits=3)
+    CVData =[(train,test) for train, test in tscv.split(X_train)]
     if blnGridSearch:
-        clf = GridSearchCV(clfReg, parameters, verbose=1,n_jobs=3)
+        clf = GridSearchCV(clfReg, parameters, verbose=1,n_jobs=3, cv=CVData)
     #clf =rbf_svm
 
 
@@ -577,8 +631,15 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
     prediction =clf.predict(X_test)
 
     #reverse the scaler to get back original prices
+
+    #need to reverse the natural log on prices
+    if lBlnUseNaturalLog:
+        prediction =np.exp(prediction)
+        y_test =np.exp(y_test)
     
     #prediction=scaler.inverse_transform(prediction)
+    #CANNOT TAKE LOG OF A NEGATIVE NUMBER, the forecast prediction can be negative
+    # especially if stock is in a downtrend. this will fail for negative predictions.
     AccRatio =np.log(prediction/y_test)
     SSqAccRatio =sum(i**2 for i in AccRatio)
     print ('Accuracy Ratio Sum Sq. ' + str(SSqAccRatio))
@@ -619,7 +680,7 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
     
     legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
 
-    if True:
+    if False:
             plt.show()
 
     return SSqAccRatio #testScore
@@ -631,7 +692,7 @@ if __name__=='__main__':
         result =None
         #initGuess=[numLayers,lNeurons]
         #lBounds=[(5,9),(20,700)]
-        lBounds=[(50000,1250000),(.000000001,.003),(7,40),(7,40),(7,25),(8,25) , (2,7)]
+        lBounds=[(10,500000),(.000000001,.3),(7,40),(7,40),(7,25),(8,25) , (2,7)]
         #def fnMainWrapperSVRRBF(*pArgs):
         #pC=int(pArgs[0][0])
         #pGamma=pArgs[0][1]
@@ -649,7 +710,7 @@ if __name__=='__main__':
         #('C, gamma,pLookback,pDaysAhead', 60984, 0.00023225165833289416, 8, 34)
         #Best peformance is longer lookback on overall and shorter on S&R.
         #fnMainWrapperSVRRBF([343338, 7.1987125404345681e-08, 10, 30, 7])
-        fnMainWrapperSVRRBF([943158, 6.8637330837212959e-06, 20, 7, 8, 9, 2])
+        fnMainWrapperSVRRBF([ 1110707, 0.0018693154187832293, 22, 24, 9, 24, 6])
         #fnMainWrapperSVRRBF([ 60984, 0.00023225165833289416, 8, 34])
         #fnMainWrapperSVRRBF([343338, 7.1987125404345681e-08, 10, 21, 9])
 
