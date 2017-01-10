@@ -235,7 +235,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookb
 
         pDf=fnCalcAvgVolumeStats(pDf,20)
 
-        #pDf =fnCalculateSlope(pDf,pSlopeLookback) #pNumDaysLookBack try 32
+        pDf =fnCalculateSlope(pDf,pSlopeLookback) #pNumDaysLookBack try 32
 
         pDf=moving_average_convergence(pDf)
 
@@ -326,7 +326,8 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookb
         return pDf, lstCols
 
 def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
-                                   pNumDaysLookBack,pSlopeLookback,pSRLookback,pSegments):
+                                   pNumDaysLookBack,pSlopeLookback,pSRLookback,
+                                   pSegments):
         global lstCols
         #sort by date asc
         df=pDataFrameStockData
@@ -334,7 +335,12 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         df.sort(['Date'], inplace=True)
         lst_Y =[]
         lStrTicker ='TICKER'
-        
+        lstPreviousDayPrices =[]
+        lstDates=[]
+        #USING returns now, must start at first valid return
+        #this shifts up the data set
+        df =df[ pd.notnull(df['Adj Close'])]
+
         #add in calculated features
         #calculated features are NOT adding any value to prediction via SVR, or MLP ??
         if True:
@@ -358,7 +364,7 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         #        'MACD','RSI','RSIDecision','RealBody','Color' #realbody and color actually hurt the R^2 on SPY.
         #         ]'DailyLogReturn',
         lstCols=['2DayNetPriceChange','Ticker','Date', 'Adj Close','rollingMean20',# DiffercenceBtwnAvgVol
-                'rollingStdev20','High','Low','Open','Volume', # 'DiffercenceBtwnAvgVol',
+                'rollingStdev20','High','Low','Open','Volume','CloseSlope','VolumeSlope', # 'DiffercenceBtwnAvgVol',
                  #'EMV','ForceIndex', #'CloseSlope',
                  'RSI'] # +lstSRCols # 'MACD']+lstSRCols # ['S1','S2','S3','S4','R1','R2','R3','R4']
                  #['Min1','Min2','Min3','Min4','Min5','Max1','Max2','Max3','Max4','Max5'] #lstSRCols #,'RSIDecision',
@@ -379,12 +385,18 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
                 result.append(list(p.T[lStrTicker][:]))
 
                 lRowPredictedPrice =lEndRow+pNumDaysAheadPredict-1
+                #using log returns now, adj close is just field name.
                 lst_Y.append(df['Adj Close'][lRowPredictedPrice:lRowPredictedPrice+1].values[0])
+                
+                #use this list to get back original price from predicted prices
+                lstPreviousDayPrices.append(df['Adj Close Price'][lRowPredictedPrice-1:lRowPredictedPrice].values[0])
+                
+                #lstDates.append(df['Date'][lRowPredictedPrice:lRowPredictedPrice+1].values[0])
+
                 iRowCtr=iRowCtr+1
 
 
-
-        return result, lst_Y, df
+        return result, lst_Y,  lstPreviousDayPrices, df
 
 
 def fnGetYahooStockData(pStartDate, pEndDate, pSymbol):
@@ -446,12 +458,13 @@ def fnMainWrapperSVRRBF(*pArgs):
         result=fnMain(pLookback,lBlnSavedData,pC, pGamma, 1,pSlopeLookback,pDaysAhead,pSRLookback,pSegments)
         return result
 
-def fnGetNaturalLogPrices(pDf):
+def fnGetNaturalLogPrices(pDf,Nperiods=1):
     #return the data frame with natural log of open, hi, low , close prices
     #this should make it better for time series analysis
-    lstFlds =['Adj Close','Close','Open','High']
+    lstFlds =['Adj Close','Close','Open','High','Low']
     for fld in lstFlds:
-        pDf[fld] =np.log( pDf[fld] )
+        #pDf[fld] =np.log( pDf[fld] )
+        pDf[fld] = np.log(pDf[fld]/pDf[fld].shift(periods=Nperiods))
 
     return pDf
 
@@ -526,10 +539,16 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
         #lStartDate=datetime.date(2001, 1, 6)
         #lEndDate=datetime.date(2004, 7, 1)
 
+        #add a column for original ADJ close so we can go back to prices
+        #after running SVM
+        dfQuotes['Adj Close Price'] =dfQuotes['Adj Close']
+        dfQuotesTest['Adj Close Price'] =dfQuotesTest['Adj Close']
+
         ############################################
         #use natural log of prices to stabilize variance
-        dfQuotes =fnGetNaturalLogPrices(dfQuotes)
-        dfQuotesTest =fnGetNaturalLogPrices(dfQuotesTest)
+        dfQuotes =fnGetNaturalLogPrices(dfQuotes,1)
+        dfQuotesTest =fnGetNaturalLogPrices(dfQuotesTest,1)
+
 
         #dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
 
@@ -597,8 +616,8 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
 
     X_train =scaler.transform(X_train)  
 
-    listC =list(range(10000,750000,10000))
-    lStep =(.01-.0000001)/120
+    listC =list(range(10000,750000,35000))
+    lStep =(.01-.0000001)/30
     listGamma =list(np.arange(.0000001,.01,lStep))
 
     parameters={'C':listC,
@@ -621,8 +640,12 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
         print('lookback: ' +str(lNumDaysLookBack))
     X_test =testingData[0]
     y_test =testingData[1]
-    #grab the data frame to use the dates for plotting on graph.
-    pDataFrame =testingData[2]
+    
+    #grab prev. days' prices so we can use forecasted return to predict next price.
+    y_PrevDayPrices=testingData[2]
+
+   #grab the data frame to use the dates for plotting on graph.
+    pDataFrame=testingData[3]
 
     X_test =scaler.transform(X_test)  
     
@@ -634,9 +657,10 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
 
     #need to reverse the natural log on prices
     if lBlnUseNaturalLog:
-        prediction =np.exp(prediction)
-        y_test =np.exp(y_test)
-    
+        prediction =np.exp(prediction)*y_PrevDayPrices
+        y_test =np.exp(y_test)*y_PrevDayPrices
+        #y_test =np.exp(y_test)*dfQuotesTest['Adj Close Price']
+        
     #prediction=scaler.inverse_transform(prediction)
     #CANNOT TAKE LOG OF A NEGATIVE NUMBER, the forecast prediction can be negative
     # especially if stock is in a downtrend. this will fail for negative predictions.
@@ -710,7 +734,7 @@ if __name__=='__main__':
         #('C, gamma,pLookback,pDaysAhead', 60984, 0.00023225165833289416, 8, 34)
         #Best peformance is longer lookback on overall and shorter on S&R.
         #fnMainWrapperSVRRBF([343338, 7.1987125404345681e-08, 10, 30, 7])
-        fnMainWrapperSVRRBF([ 1110707, 0.0018693154187832293, 22, 24, 9, 24, 6])
+        fnMainWrapperSVRRBF([ 45000, 9.9999999999999995e-08, 22, 24, 9, 24, 6])
         #fnMainWrapperSVRRBF([ 60984, 0.00023225165833289416, 8, 34])
         #fnMainWrapperSVRRBF([343338, 7.1987125404345681e-08, 10, 21, 9])
 
