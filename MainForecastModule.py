@@ -331,7 +331,7 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         global lstCols
         #sort by date asc
         df=pDataFrameStockData
-        #df.Date = pd.to_datetime(df.Date)
+        df.Date = pd.to_datetime(df.Date)
         df.sort(['Date'], inplace=True)
         lst_Y =[]
         lStrTicker ='TICKER'
