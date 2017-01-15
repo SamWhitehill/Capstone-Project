@@ -25,6 +25,7 @@ from scipy.optimize import fmin_l_bfgs_b
 from scipy.optimize import differential_evolution
 
 from sklearn.neighbors import KNeighborsRegressor
+from sklearn.metrics import r2_score
 
 global lstCols
 lstCols=[]
@@ -292,6 +293,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookb
             pDf =pDf[ pd.notnull(pDf['VolumeSlope'])]
         pDf =pDf[ pd.notnull(pDf['EMV'])]
         pDf =pDf[ pd.notnull(pDf['MACD'])]
+        pDf =pDf[ pd.notnull(pDf['RSI'])]
         
         #ensure no NULL support /resistance levels, remove first n records to NOT cheat!
         lstSR =lstCols #['S1','S2','S3','S4','R1','R2','R3','R4']
@@ -306,7 +308,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookb
                 #pDf =pDf[ pd.notnull(pDf[item])]
 
 
-        if True:
+        if False:
                 pDf =pDf.merge(upper_band,how='inner',on=['Date'],right_index=True)
                 pDf =pDf.merge(lower_band,how='inner',on=['Date'],right_index=True)
                 #df =df.merge(rollingMean,how='inner',on=['Date'])
@@ -362,39 +364,56 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         #lstCols=['DiffercenceBtwnAvgVol','2DayNetPriceChange','Ticker','Date',  #'Adj Close',\
         #        'rollingStdev20','Adj Close','Open','High','Low','Volume','upper_band','lower_band',
         #        'MACD','RSI','RSIDecision','RealBody','Color' #realbody and color actually hurt the R^2 on SPY.
-        #         ]'DailyLogReturn',
-        lstCols=['2DayNetPriceChange','Ticker','Date', 'Adj Close','rollingMean20',# DiffercenceBtwnAvgVol
-                'rollingStdev20','High','Low','Open','Volume','CloseSlope','VolumeSlope', # 'DiffercenceBtwnAvgVol',
+        #         ]'DailyLogReturn',CloseSlope 'Ticker','Date',
+        lstCols=['2DayNetPriceChange', 'Adj Close','rollingMean20',# DiffercenceBtwnAvgVol
+                'rollingStdev20', #'High','Low','Open', #'Volume','VolumeSlope', # 'DiffercenceBtwnAvgVol',
                  #'EMV','ForceIndex', #'CloseSlope',
                  'RSI'] # +lstSRCols # 'MACD']+lstSRCols # ['S1','S2','S3','S4','R1','R2','R3','R4']
                  #['Min1','Min2','Min3','Min4','Min5','Max1','Max2','Max3','Max4','Max5'] #lstSRCols #,'RSIDecision',
-                 
+        #lstCols=['Ticker','Date', 'Adj Close']       
         #'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
                 #,'LowSlope', 'HighSlope'
                 # ]
                  #'UpDownVolumeChange'
                   #      ] # 'Open','High','Low', ,'upper_band','lower_band'
         print ('Features - ' +str(lstCols))
-        
+        lRowPrevDayPrice =0
+
+
+        #new method for pivoting
+        #**************************************
+        lEndIndex =(len(df)-pNumDaysAheadPredict)
+        X,y = organize_data(df['Adj Close'].values, pNumDaysLookBack, pNumDaysAheadPredict)
+        X = window_stack(df[lstCols][0:lEndIndex].values, stepsize=1, width=pNumDaysLookBack   ) 
+        lst_Y=y
+        result =X
+
         while (iRowCtr+pNumDaysLookBack+pNumDaysAheadPredict)<=lEnd:
                 #for iRowCtr in range(0, lEnd):
                 lEndRow =iRowCtr+pNumDaysLookBack
                 #p = df[df['Date']<datetime.date(year=2015,month=9,day=6)].pivot(index='Ticker', columns='Date')
-                p = df[iRowCtr:lEndRow][lstCols].pivot(index='Ticker', columns='Date')
+                #p = df[iRowCtr:lEndRow][lstCols].pivot(index='Ticker', columns='Date')
 
-                result.append(list(p.T[lStrTicker][:]))
+                #result.append(list(p.T[lStrTicker][:]))
 
                 lRowPredictedPrice =lEndRow+pNumDaysAheadPredict-1
                 #using log returns now, adj close is just field name.
-                lst_Y.append(df['Adj Close'][lRowPredictedPrice:lRowPredictedPrice+1].values[0])
+                #lst_Y.append(df['Adj Close'][lRowPredictedPrice:lRowPredictedPrice+1].values[0])
                 
+                lRowPrevDayPrice =lRowPredictedPrice -pNumDaysAheadPredict
+                #pNumDaysAheadPredict=lEndRow-
                 #use this list to get back original price from predicted prices
-                lstPreviousDayPrices.append(df['Adj Close Price'][lRowPredictedPrice-1:lRowPredictedPrice].values[0])
+                lstPreviousDayPrices.append(df['Adj Close Price'][lRowPrevDayPrice:lRowPrevDayPrice+1].values[0])
                 
                 #lstDates.append(df['Date'][lRowPredictedPrice:lRowPredictedPrice+1].values[0])
 
                 iRowCtr=iRowCtr+1
 
+
+
+        #need to process the outputs as numpy arrays so sklearn handles them correctly 
+        #FINAL_X =np.array(  [  np.array(item) for item in result])
+        #FINAL_Y =np.array( [item for item in lst_Y] )
 
         return result, lst_Y,  lstPreviousDayPrices, df
 
@@ -444,12 +463,14 @@ def fnMainWrapperSVRPoly(*pArgs):
 
 def fnMainWrapperSVRRBF(*pArgs):
         pC=int(pArgs[0][0])
+        if pC<=0:
+            pC=.1
         pGamma=pArgs[0][1]
         pSlopeLookback=int(pArgs[0][2])
         pLookback=int(pArgs[0][3])
         pDaysAhead=int(pArgs[0][4])
-        pSRLookback=int(pArgs[0][5])
-        pSegments=int(pArgs[0][6])
+        pSRLookback=1 #int(pArgs[0][5])
+        pSegments=1#int(pArgs[0][6])
 
         lBlnSavedData = True
         print ("Using Saved Data =" + str(   lBlnSavedData))    
@@ -467,6 +488,29 @@ def fnGetNaturalLogPrices(pDf,Nperiods=1):
         pDf[fld] = np.log(pDf[fld]/pDf[fld].shift(periods=Nperiods))
 
     return pDf
+
+def window_stack(a, stepsize=1, width=3):
+        n = a.shape[0]
+        return np.hstack( a[i:1+n+i-width:stepsize] for i in range(0,width) )
+
+def organize_data(to_forecast, window, horizon):
+        """
+         Input:
+          to_forecast, univariate time series organized as numpy array
+          window, number of items to use in the forecast window
+          horizon, horizon of the forecast
+         Output:
+          X, a matrix where each row contains a forecast window
+          y, the target values for each row of X
+        """
+    
+        shape = to_forecast.shape[:-1] + (to_forecast.shape[-1] - window + 1, window)
+        strides = to_forecast.strides + (to_forecast.strides[-1],)
+        X = np.lib.stride_tricks.as_strided(to_forecast, 
+                                            shape=shape, 
+                                            strides=strides)
+        y = np.array([X[i+horizon][-1] for i in range(len(X)-horizon)])
+        return X[:-horizon], y
 
 def fnGetCVIndices(pDf):
     #return the CV param for use in GridSearchCV
@@ -498,7 +542,7 @@ def fnGetCVIndices(pDf):
 #def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pNumLayers=1, pNeurons=1):
 def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1, 
            pSlopeLookback=10,pDaysAhead=10,pSRLookback=11,pSegments=4):
-    blnGridSearch =True
+    blnGridSearch =False
     global lstCols
     lTicker ="SPY" #SBUX
     lRandomState =89
@@ -546,8 +590,8 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
 
         ############################################
         #use natural log of prices to stabilize variance
-        dfQuotes =fnGetNaturalLogPrices(dfQuotes,1)
-        dfQuotesTest =fnGetNaturalLogPrices(dfQuotesTest,1)
+        dfQuotes =fnGetNaturalLogPrices(dfQuotes,pDaysAhead)
+        dfQuotesTest =fnGetNaturalLogPrices(dfQuotesTest,pDaysAhead)
 
 
         #dfQuotes =fnGetYahooStockData(lStartDate,lEndDate , lTicker)
@@ -584,14 +628,7 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
     clfReg = svm.SVR(kernel='rbf', C=pC,gamma=pGamma,    epsilon =.01)
     #clfReg = svm.SVR(kernel='poly', C=pC,gamma=pGamma,degree=pDegrees,    epsilon =.001)  
     #clfReg =MLPRegressor(activation='logistic')
-    ##h =111  #int(lLyrSz*1.1),hidden_layer_sizes=(1200,lLyrSz,lLyrSz,lLyrSz,lLyrSz,lLyrSz)
-    pNumLayers=12
-    pNeurons=337
-    pNeurons=[pNeurons]*pNumLayers
-    #pNeurons=[337]
-    
-    tupHiddenLayers =tuple(pNeurons)
-    
+ 
     #clfReg =MLPRegressor(hidden_layer_sizes=tupHiddenLayers,
     # activation='relu', solver='adam', alpha=0.0001,random_state=lRandomState,
     # batch_size='auto', learning_rate='constant', learning_rate_init=0.01)
@@ -611,10 +648,12 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
 
     #dataset = scaler.fit_transform(dataset)
     #must implement feature scaling, or else volume will dominate
-    #scaler = preprocessing.StandardScaler().fit(X_train)
-    scaler = preprocessing.MinMaxScaler(feature_range=(0, 1)).fit(X_train) #.46 score
-
-    X_train =scaler.transform(X_train)  
+    scaler = preprocessing.StandardScaler().fit(X_train)
+    
+    #scaler = preprocessing.MinMaxScaler(feature_range=(0, 1)).fit(X_train) #.46 score
+    blnScale =False
+    if blnScale:
+        X_train =scaler.transform(X_train)  
 
     listC =list(range(10000,750000,35000))
     lStep =(.01-.0000001)/30
@@ -647,7 +686,8 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
    #grab the data frame to use the dates for plotting on graph.
     pDataFrame=testingData[3]
 
-    X_test =scaler.transform(X_test)  
+    if blnScale:
+        X_test =scaler.transform(X_test)  
     
 
     score = clf.score(X_test, y_test)
@@ -662,6 +702,7 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
         #y_test =np.exp(y_test)*dfQuotesTest['Adj Close Price']
         
     #prediction=scaler.inverse_transform(prediction)
+
     #CANNOT TAKE LOG OF A NEGATIVE NUMBER, the forecast prediction can be negative
     # especially if stock is in a downtrend. this will fail for negative predictions.
     AccRatio =np.log(prediction/y_test)
@@ -671,43 +712,51 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
     print('Test Score: %.2f RMSE' % (testScore))
 
     print('SVM Score: ' +str(score))
+    #r2_score(y_true, y_pred
+    print ('R2 score on prices:' +str(r2_score(y_test ,prediction)))
 
+    blnPlot=False
 
-    #need to trim the data frame dates to match length 
-    lStartDate =len(pDataFrame)-len(y_test)
-    pDataFrame=pDataFrame[lStartDate:]
+    if blnPlot:
+        #need to trim the data frame dates to match length 
+        lStartDate =len(pDataFrame)-len(y_test)
+        pDataFrame=pDataFrame[lStartDate:]
 
-    #plt.plot(pDataFrame['Date'],y_test,label='Actual ' + lTicker)
-    plt.plot_date(pDataFrame['Date'], y_test, 'b-',label='Actual ' + lTicker)
-    plt.plot_date(pDataFrame['Date'], prediction, 'g-',label='Predicted')
-    #plt.plot(pDataFrame['Date']) 
-    #ax.xaxis.set_minor_locator(months)
-    #fig.autofmt_xdate()
-    #plt.plot(prediction,label='Predicted')
+        #plt.plot(pDataFrame['Date'],y_test,label='Actual ' + lTicker)
+        plt.plot_date(pDataFrame['Date'], y_test, 'b-',label='Actual ' + lTicker)
+        plt.plot_date(pDataFrame['Date'], prediction, 'g-',label='Predicted')
+        #plt.plot(pDataFrame['Date']) 
+        #ax.xaxis.set_minor_locator(months)
+        #fig.autofmt_xdate()
+        #plt.plot(prediction,label='Predicted')
    
-    plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=33))
-    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m-%d-%Y'))
-    plt.gcf().autofmt_xdate()
+        plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=33))
+        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m-%d-%Y'))
+        plt.gcf().autofmt_xdate()
 
-    #lNumDaysLookBack=30
-    if 'lstCols' in globals()==False:
-            lstCols=[]
-    #lNumDaysAheadPredict=5
-    lStrClassifier =repr(clf)
-    lstrTitle ="\n".join(wrap('Classifier ' + lStrClassifier +  ' Stock: ' +lTicker + ' SVR C: ' + str(C) + ' gamma ' +str(gamma) + ' lookback: '+str(lNumDaysLookBack) +
-                 ' daysAhead: ' + str(lNumDaysAheadPredict) + ' SVM Score: '+ str(score) +' features: ' +str(lstCols)))
+        #lNumDaysLookBack=30
+        if 'lstCols' in globals()==False:
+                lstCols=[]
+        #lNumDaysAheadPredict=5
+        lStrClassifier =repr(clf)
+        lstrTitle ="\n".join(wrap('Classifier ' + lStrClassifier +  ' Stock: ' +lTicker + ' SVR C: ' + str(pC) + ' gamma ' +str(pGamma) + ' lookback: '+str(lNumDaysLookBack) +
+                     ' daysAhead: ' + str(lNumDaysAheadPredict) + ' SVM Score: '+ str(score) +' features: ' +str(lstCols)))
 
 
-    if True:
-        plt.suptitle(lstrTitle,
-                fontsize=11, fontweight='bold')
+        if True:
+            plt.suptitle(lstrTitle,
+                    fontsize=11, fontweight='bold')
     
-    legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
+        legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
 
-    if False:
-            plt.show()
+    if blnPlot:
+        #ax = plt.add_subplot(111)
+        #for xy in zip(pDataFrame['Date'], y_test):                                       #data labels
+        #    ax.annotate('(%s, %s)' % xy, xy=xy, textcoords='data') 
+            
+        plt.show()
 
-    return SSqAccRatio #testScore
+    return -score #SSqAccRatio #testScore
 
 if __name__=='__main__':
         lNeurons=285
@@ -716,7 +765,7 @@ if __name__=='__main__':
         result =None
         #initGuess=[numLayers,lNeurons]
         #lBounds=[(5,9),(20,700)]
-        lBounds=[(10,500000),(.000000001,.3),(7,40),(7,40),(7,25),(8,25) , (2,7)]
+        lBounds=[(1,3000000),(.0000000001,10),(7,40),(3,40),(2,10)] #(8,25) , (2,7)]
         #def fnMainWrapperSVRRBF(*pArgs):
         #pC=int(pArgs[0][0])
         #pGamma=pArgs[0][1]
@@ -734,11 +783,16 @@ if __name__=='__main__':
         #('C, gamma,pLookback,pDaysAhead', 60984, 0.00023225165833289416, 8, 34)
         #Best peformance is longer lookback on overall and shorter on S&R.
         #fnMainWrapperSVRRBF([343338, 7.1987125404345681e-08, 10, 30, 7])
-        fnMainWrapperSVRRBF([ 45000, 9.9999999999999995e-08, 22, 24, 9, 24, 6])
+        #fnMainWrapperSVRRBF([ 45000, 9.9999999999999995e-08, 22, 24, 9, 24, 6])
         #fnMainWrapperSVRRBF([ 60984, 0.00023225165833289416, 8, 34])
-        #fnMainWrapperSVRRBF([343338, 7.1987125404345681e-08, 10, 21, 9])
 
-        #result=differential_evolution(func=fnMainWrapperSVRRBF,bounds=lBounds,disp=1)
+        #('pC, pGamma,pSlopeLookback,pLookback,pDaysAhead,pSRLookback,pSegments', 120, 0.22875079972240062, 11, 38, 21, 1, 1)
+        
+        #fnMainWrapperSVRRBF([120, 0.22875079972240062, 11, 38, 21])
+        #fnMainWrapperSVRRBF([309948, 0.537111816058, 23, 15, 24])
+        print ('no feature scaling')
+        lBounds=[(70000,500000),(.000001,.9),(7,50),(40,150),(20,90) ]
+        result=differential_evolution(func=fnMainWrapperSVRRBF,bounds=lBounds,disp=1)
         print(result)
 
         for i in range(8,9):
