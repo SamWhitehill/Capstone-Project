@@ -1,3 +1,4 @@
+import os
 import  BuildTrendLines as trendy
 from sklearn.model_selection import TimeSeriesSplit
 from SupportAndResistance  import fnGetSupportResistance
@@ -24,8 +25,17 @@ import matplotlib.dates as mdates
 from scipy.optimize import fmin_l_bfgs_b
 from scipy.optimize import differential_evolution
 
-from sklearn.neighbors import KNeighborsRegressor
+#from sklearn.neighbors import KNeighborsRegressor
 from sklearn.metrics import r2_score
+from sklearn.linear_model import LinearRegression
+
+#*****************************************************
+#this path is required for xgboost to import
+#*****************************************************
+mingw_path = 'C:\\Program Files\\mingw-w64\\x86_64-5.3.0-posix-seh-rt_v4-rev0\\mingw64\\bin'
+os.environ['PATH'] = mingw_path + ';' + os.environ['PATH']
+import xgboost as xgb
+
 
 global lstCols
 lstCols=[]
@@ -231,6 +241,7 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookb
         #pDf =pDf.merge(dfSR,how='inner',on=['Date'],right_index=True)
         #not using candlestick patterns any longer
         #pDf=fnComputeCandleStickPattern(pDf)
+        pDf['HighLowRange'] =pDf['High'] -pDf['Low']
 
         pDf =fnCalcNDayNetPriceChange(pDf,2)
 
@@ -253,18 +264,21 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookb
         pDf['RSIDecision'] =np.where(pDf['RSI']  >=70,10*pDf['Adj Close'],0)
         pDf['RSIDecision'] =np.where(pDf['RSI'] <=30,-10*pDf['Adj Close'],pDf['RSIDecision'])
 
+        rollingMax=pd.rolling_max(pDf['Adj Close'],window=15)
+        rollingMin =pd.rolling_min(pDf['Adj Close'],window=15)
 
-        rollingMean =pd.rolling_mean(pDf['Adj Close'],window=20)
+        rollingMean =pd.rolling_mean(pDf['Adj Close'],window=70)
         rollingMeanFifty =pd.rolling_mean(pDf['Adj Close'],window=50)
 
         #26 day std dev gives best results
-        rollingStdev =pd.rolling_std(pDf['Adj Close'],window=10) # CHANGED TO 10 DAY FROM research paper
+        rollingStdev =pd.rolling_std(pDf['Adj Close'],window=7) # CHANGED TO 10 DAY FROM research paper
 
         rollingMeanFifty.fillna(value=0,inplace=True)
         rollingMean.fillna(value=0,inplace=True)
         rollingStdev.fillna(value=0,inplace=True)
         #df =df.merge(rollingMean,how='inner',on=['Date'])
-
+        rollingMax.fillna(value=0,inplace=True)
+        rollingMin.fillna(value=0,inplace=True)
         #rollingMean =rollingMean+10
         #print(rollingMean)
         #upper /lower bands are pandas series
@@ -282,11 +296,17 @@ def fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookb
         rollingStdev=fnConvertSeriesToDf(rollingStdev,['Date', 'rollingStdev20'])
         rollingMean=fnConvertSeriesToDf(rollingMean,['Date', 'rollingMean20'])
 
+        rollingMax=fnConvertSeriesToDf(rollingMax,['Date', 'rollingMax20'])
+        rollingMin=fnConvertSeriesToDf(rollingMin,['Date', 'rollingMin20'])
+
         rollingMeanFifty=fnConvertSeriesToDf(rollingMeanFifty,['Date', 'rollingMean50'])
 
         pDf =pDf.merge(rollingMean,how='inner',on=['Date'],right_index=True)
         pDf =pDf.merge(rollingStdev,how='inner',on=['Date'],right_index=True)
         pDf =pDf.merge(rollingMeanFifty,how='inner',on=['Date'],right_index=True)
+
+        pDf =pDf.merge(rollingMax,how='inner',on=['Date'],right_index=True)
+        pDf =pDf.merge(rollingMin,how='inner',on=['Date'],right_index=True)
 
         #CANNOT HAVE any Nans, must all be valid number so cut off records with invalid Nans.
         if 'VolumeSlope' in pDf.columns:
@@ -365,14 +385,18 @@ def fnGetHistoricalStockDataForSVM(pDataFrameStockData, pNumDaysAheadPredict,
         #        'rollingStdev20','Adj Close','Open','High','Low','Volume','upper_band','lower_band',
         #        'MACD','RSI','RSIDecision','RealBody','Color' #realbody and color actually hurt the R^2 on SPY.
         #         ]'DailyLogReturn',CloseSlope 'Ticker','Date',
-        lstCols=['2DayNetPriceChange', 'Adj Close','rollingMean20',# DiffercenceBtwnAvgVol
-                'rollingStdev20', #'High','Low','Open', #'Volume','VolumeSlope', # 'DiffercenceBtwnAvgVol',
+        #lstCols=['2DayNetPriceChange', 'Adj Close','rollingMean20',# DiffercenceBtwnAvgVol
+        #        'rollingStdev20','CloseSlope', #'High','Low','Open', #'Volume','VolumeSlope', # 'DiffercenceBtwnAvgVol',
                  #'EMV','ForceIndex', #'CloseSlope',
-                 'RSI'] # +lstSRCols # 'MACD']+lstSRCols # ['S1','S2','S3','S4','R1','R2','R3','R4']
+        #         'RSI'] # +lstSRCols # 'MACD']+lstSRCols # ['S1','S2','S3','S4','R1','R2','R3','R4']
                  #['Min1','Min2','Min3','Min4','Min5','Max1','Max2','Max3','Max4','Max5'] #lstSRCols #,'RSIDecision',
-        #lstCols=['Ticker','Date', 'Adj Close']       
+        lstCols=[ 'HighLowRange','Adj Close','rollingMean20',
+                'rollingStdev20','High','Low',
+                 'MACD','emafast','emaslow','CloseSlope','rollingMean50','rollingMax20','rollingMin20']
+                 
+        #lstCols=['Adj Close']       
         #'LowSlope','HighSlope'] #,'LowSlope'] rollingMean50,rollingStdev20
-                #,'LowSlope', 'HighSlope'
+                    #,'LowSlope', 'HighSlope'
                 # ]
                  #'UpDownVolumeChange'
                   #      ] # 'Open','High','Low', ,'upper_band','lower_band'
@@ -539,9 +563,22 @@ def fnGetCVIndices(pDf):
     #[([0, 1, 2], [3]),  # idxs of first split as (train, test) tuple
     # ([2, 3], [4, 5])]  # idxs of second split as (train, test) tuple
 
+def fnGetXGBRegressor(X,y):
+    param = {'silent':1, 'objective':'reg:linear', 'booster':'gbtree','gamma':.3, 'base_score':3,'max_depth':20}
+    dtrain = fnGetXGBMatrix(X,y)
+    num_round = 50
+    bst = xgb.train(param, dtrain, num_round)
+    #xgb_model = xgb.XGBRegressor().fit(X,y)
+    #preds = bst.predict(dtest)#
+    return bst
+
+def fnGetXGBMatrix(X,y):
+    return xgb.DMatrix(X,y)
+
+
 #def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pNumLayers=1, pNeurons=1):
 def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1, 
-           pSlopeLookback=10,pDaysAhead=10,pSRLookback=11,pSegments=4):
+           pSlopeLookback=45,pDaysAhead=10,pSRLookback=11,pSegments=4):
     blnGridSearch =False
     global lstCols
     lTicker ="SPY" #SBUX
@@ -572,10 +609,16 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
     else:
         #GET DATA FROM PICKLE/SAVED FILES
         #use previously saved data
-        
-        dfQuotes = cPickle.load(open(lstrPath+'dfQuotes.p', 'rb'))
-        dfQuotesTest = cPickle.load(open(lstrPath+'dfQuotesTest.p', 'rb'))
 
+        dfQuotes =pd.read_csv(lstrPath+'SPY Long history.csv')
+        dfQuotes.Date = pd.to_datetime(dfQuotes.Date)
+        dfQuotes.sort(['Date'], inplace=True)
+        dfQuotesTest =dfQuotes[1900:]
+        dfQuotes=dfQuotes[:1900]
+        
+        #dfQuotes = cPickle.load(open(lstrPath+'dfQuotes.p', 'rb'))
+        #dfQuotesTest = cPickle.load(open(lstrPath+'dfQuotesTest.p', 'rb'))
+            
             
     #save data via pickle
     if True: #pBlnUseSavedData==False:
@@ -624,8 +667,10 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
     C=135000#SVM Score: -11.1354870245 #'C': 1100000, 'gamma': 1e-06}
     gamma=1e-05
 
+    
     #{'C': 2000, 'gamma': 1e-05}
-    clfReg = svm.SVR(kernel='rbf', C=pC,gamma=pGamma,    epsilon =.01)
+    clfReg = svm.SVR(kernel='sigmoid', C=pC,gamma=pGamma,    epsilon =.01)
+    #clfReg = LinearRegression(normalize=True, n_jobs=2)
     #clfReg = svm.SVR(kernel='poly', C=pC,gamma=pGamma,degree=pDegrees,    epsilon =.001)  
     #clfReg =MLPRegressor(activation='logistic')
  
@@ -655,24 +700,24 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
     if blnScale:
         X_train =scaler.transform(X_train)  
 
-    listC =list(range(10000,750000,35000))
-    lStep =(.01-.0000001)/30
-    listGamma =list(np.arange(.0000001,.01,lStep))
+    listC =list(np.arange(.001,5,.04))
+    lStep =(2-.000001)/40
+    listGamma =list(np.arange(.000001,2,lStep))
 
     parameters={'C':listC,
                 'gamma':listGamma}
     #12.17.2016 clf.best_params_{'C': 1100000, 'gamma': 1e-07}
     clf =clfReg
 
-    #CVData =fnGetCVIndices(dfQuotes)
-    tscv = TimeSeriesSplit(n_splits=3)
-    CVData =[(train,test) for train, test in tscv.split(X_train)]
     if blnGridSearch:
+        tscv = TimeSeriesSplit(n_splits=3)
+        CVData =[(train,test) for train, test in tscv.split(X_train)]
         clf = GridSearchCV(clfReg, parameters, verbose=1,n_jobs=3, cv=CVData)
     #clf =rbf_svm
 
-
-    clf.fit(X_train, y_train)
+    #TRYING xgboost
+    clf=fnGetXGBRegressor(X_train,y_train)
+    #clf.fit(X_train, y_train)
 
     if blnGridSearch:
         print(clf.best_params_)  
@@ -689,11 +734,20 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
     if blnScale:
         X_test =scaler.transform(X_test)  
     
+    score=0
+    #XGboost
+    xgMatrix =fnGetXGBMatrix(X_test,y_test)
+    prediction =clf.predict(xgMatrix)
+    #evals_result = clf.evals_result()
 
-    score = clf.score(X_test, y_test)
-    prediction =clf.predict(X_test)
+    if False:
+        score = clf.score(X_test, y_test)
+        prediction =clf.predict(X_test)
 
-    #reverse the scaler to get back original prices
+    y_test_returns=y_test
+    predicted_returns=prediction
+    
+    print ('R2 score on RETURNS:' +str(r2_score(y_test ,prediction)))
 
     #need to reverse the natural log on prices
     if lBlnUseNaturalLog:
@@ -715,7 +769,7 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
     #r2_score(y_true, y_pred
     print ('R2 score on prices:' +str(r2_score(y_test ,prediction)))
 
-    blnPlot=False
+    blnPlot=True
 
     if blnPlot:
         #need to trim the data frame dates to match length 
@@ -723,8 +777,17 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
         pDataFrame=pDataFrame[lStartDate:]
 
         #plt.plot(pDataFrame['Date'],y_test,label='Actual ' + lTicker)
-        plt.plot_date(pDataFrame['Date'], y_test, 'b-',label='Actual ' + lTicker)
-        plt.plot_date(pDataFrame['Date'], prediction, 'g-',label='Predicted')
+        if False:
+                plt.plot_date(pDataFrame['Date'], y_test, 'b-',label='Actual ' + lTicker)
+                plt.plot_date(pDataFrame['Date'], prediction, 'g-',label='Predicted')
+
+
+        #*******************************************
+        #plot volatility instead
+        #**********************************************
+        plt.plot_date(pDataFrame['Date'], y_test_returns, 'b-',label='Actual ' + lTicker)
+        plt.plot_date(pDataFrame['Date'], predicted_returns, 'g-',label='Predicted')
+
         #plt.plot(pDataFrame['Date']) 
         #ax.xaxis.set_minor_locator(months)
         #fig.autofmt_xdate()
@@ -759,6 +822,7 @@ def fnMain(pLookBackDays=8, pBlnUseSavedData=True,pC=1, pGamma=1, pDegrees=1,
     return -score #SSqAccRatio #testScore
 
 if __name__=='__main__':
+        #fnSetupXGBPath()
         lNeurons=285
         numLayers=6
         #tup =tuple(h*6)
@@ -790,10 +854,21 @@ if __name__=='__main__':
         
         #fnMainWrapperSVRRBF([120, 0.22875079972240062, 11, 38, 21])
         #fnMainWrapperSVRRBF([309948, 0.537111816058, 23, 15, 24])
+#def fnMainWrapperSVRRBF(*pArgs):
+#        pC=int(pArgs[0][0])
+#        if pC<=0:
+#            pC=.1
+#        pGamma=pArgs[0][1]
+#        pSlopeLookback=int(pArgs[0][2])
+#        pLookback=int(pArgs[0][3])
+#        pDaysAhead=int(pArgs[0][4])
+
+        
+        fnMainWrapperSVRRBF([ 1, 0.0752743477092 ,45,7 , 47])
         print ('no feature scaling')
-        lBounds=[(70000,500000),(.000001,.9),(7,50),(40,150),(20,90) ]
-        result=differential_evolution(func=fnMainWrapperSVRRBF,bounds=lBounds,disp=1)
-        print(result)
+        lBounds=[(70000,500000),(.000001,.9),(40,150),(40,150),(35,90) ]
+        #result=differential_evolution(func=fnMainWrapperSVRRBF,bounds=lBounds,disp=1)
+        #print(result)
 
         for i in range(8,9):
                 #fnMain(i,True,h,numLayers) #25 look back was best
