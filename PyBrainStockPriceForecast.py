@@ -1,5 +1,5 @@
 from __future__ import print_function
-#https://stavrossioutis.wordpress.com/2016/06/25/long-short-term-memory-rnns-for-stock-price-forecasting/
+#Modified from https://stavrossioutis.wordpress.com/2016/06/25/long-short-term-memory-rnns-for-stock-price-forecasting/
 
 #import pandas_datareader.data as web
 from MainForecastModule import fnGetNaturalLogPrices
