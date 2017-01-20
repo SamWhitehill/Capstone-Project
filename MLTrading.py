@@ -1,6 +1,5 @@
 import pandas as pd
 
-
 def get_bollinger_bands(rm, rstd):
 
 	upper_band=rm + (2*rstd)
