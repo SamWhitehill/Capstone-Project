@@ -1,5 +1,6 @@
 #import os
 #print(os.path.expanduser('~'))
+#http://machinelearningmastery.com/using-learning-rate-schedules-deep-learning-models-python-keras/
 #https://github.com/CanePunma/Stock_Price_Prediction_With_RNNs/blob/master/stock_prediction_keras_FINAL.ipynb
 #https://github.com/anujgupta82/DeepNets/blob/master/Online_Learning/Online_Learning_DeepNets.ipynb
 #http://machinelearningmastery.com/grid-search-hyperparameters-deep-learning-models-python-keras/
@@ -18,6 +19,10 @@ from keras.layers import Dense
 from keras.layers import LSTM
 from keras.optimizers import SGD
 from keras.optimizers import RMSprop
+from keras.optimizers import Adagrad
+from keras.optimizers import Adam
+from keras.callbacks import LearningRateScheduler
+
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import r2_score
@@ -29,8 +34,8 @@ from MainForecastModule import window_stack
 
 lstrPath ="C:\\Udacity\\NanoDegree\\Capstone Project\\MLTrading\\"
 #LOOKBACK window
-look_back = 10
-horizon =7
+look_back =6
+horizon =5
 
 
 class ResetStatesCallback(Callback):
@@ -52,6 +57,27 @@ def fnTrainModelForMap(model, x,y,pBatchSize):
 def fnTrainViaCallback(model, x,y,pBatchSize):
 	model.fit(x, y,nb_epoch =40, callbacks=[ResetStatesCallback()], batch_size=pBatchSize, shuffle=False)
 	return model
+
+# learning rate schedule
+#A little tweaking gives you a three parameters approach:
+#The decaying function used for decaying epsilon was:
+#1 x math.exp(-ParmA x trialNum)/( 1 + math.exp(ParmB x (trialNum-ParmC)))
+#*To be clear, x means multiply, I cannot use asterisk in jupyter.
+#The following parameters used in the function are below:
+# ParmA= -5E-11 ParmB= 0.104 ParmC= 210 trialNum is the trial number (e.g., 1,2,3...).
+
+#np.exp(-0.02*x)/( 1 + np.exp(2*(x-5)))
+
+def step_decay(epoch):
+	initial_lrate = 0.80 #The Alpha used was .95 
+	drop = 0.5
+	epochs_drop = 8 #10.0
+	ParmA= -5E-11 
+	ParmB= 0.104 
+	ParmC= 50 
+	lrate=1 * math.exp(-ParmA * epoch)/( 1 + math.exp(ParmB * (epoch-ParmC)))
+	#lrate = initial_lrate * math.pow(drop, math.floor((1+epoch)/epochs_drop))
+	return lrate
 
 
 # convert an array of values into a dataset matrix
@@ -80,15 +106,15 @@ dataframe = pd.read_csv(lstrPath+'SPYRNN.csv',  engine='python')
 dataframe.Date = pd.to_datetime(dataframe.Date)
 dataframe.index =dataframe['Date']
 
-ndaysNatLog=20
+ndaysNatLog=44
 
 dataframe=fnGetNaturalLogPrices(dataframe,ndaysNatLog)
 dataframe =dataframe[ pd.notnull(dataframe['Adj Close'])] #pDf =pDf[ pd.notnull(pDf['CloseSlope'])]
-dataframe,lstColsdrop=fnComputeFeatures(dataframe,look_back,7,horizon,1,1)
+dataframe,lstColsdrop=fnComputeFeatures(dataframe,look_back,4,horizon,1,1)
 
 #lstCols =['Adj Close','rollingStdev20','rollingMax20','rollingMin20','OBV','upper_band','lower_band']
-lstCols =['Adj Close', 'High','Low','OBV','HighLowRange','rollingMean50','rollingMax20','rollingMin20','upper_band','lower_band']
-print ('running with slope lookback =7, look_back =' + str(look_back)+ ', natlog =' +str(ndaysNatLog) +' days ahead, 2 total LSTMS')
+lstCols =['Adj Close','Open','CloseSlope','Close','Volume','RSI','OBV', 'High','Low','rollingMean50','rollingMean20','rollingStdev20','rollingMax20','rollingMin20']
+print ('running with slope lookback =4, look_back =' + str(look_back)+ ', natlog =' +str(ndaysNatLog) +' days ahead, 2 total LSTMS')
 
 #MACD
 #lstCols =['Adj Close','CloseSlope','rollingMax20','rollingMin20','HighLowRange','rollingStdev20','rollingMean20'] -neg. r^2
@@ -120,7 +146,7 @@ else:
 
 
 # split into train and test sets
-train_size = int(len(dataset) * 0.67)
+train_size = int(len(dataset) * 0.65)
 
 test_size = len(dataset) - train_size
 train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
@@ -152,19 +178,26 @@ else:
 	model = Sequential()
 	#model.add(LSTM(4, batch_input_shape=(batch_size, look_back, 1), stateful=True))
 	#batch_input_shape=(batch_size, time_steps, features)
+	numNeurons =4  #increasing neuron sappears to increase volatility too much ?
+	#try softsign activation, try adagrad too
+	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
+	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
+	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
+	model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu',activation='softsign'))
+	model.add(LSTM(numNeurons, batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,consume_less='cpu',activation='softsign'))
 	
-	#model.add(LSTM(4, batch_input_shape=(batch_size, look_back, numFeatures), stateful=True,return_sequences=True, consume_less='cpu'))
-	model.add(LSTM(4, batch_input_shape=(batch_size, look_back, numFeatures), stateful=True,return_sequences=True,consume_less='cpu'))
-	model.add(LSTM(4, batch_input_shape=(batch_size, look_back, numFeatures), stateful=True,return_sequences=True,consume_less='cpu'))
-	model.add(LSTM(252, batch_input_shape=(batch_size, look_back, numFeatures), stateful=True,return_sequences=True,consume_less='cpu'))
-	model.add(LSTM(252, batch_input_shape=(batch_size, look_back, numFeatures), stateful=True,consume_less='cpu'))
+	print ('model 2 layers ' + str(numNeurons) + ' neurons per layer, activation is softsign')
+	
+	#adding lots of layers over smoothes the fit
 
-	model.add(Dense(1)) #,activation ='relu' -> gives WORSE results.
+	model.add(Dense(1,activation='softsign')) #,activation ='relu' -> gives WORSE results.
 	# Compile model
-	learn_rate=.001
+	learn_rate=.0033 #reducing the learning rate improves the fit and r squared!!!
 	#momentum=0
 	#optimizer = SGD(lr=learn_rate, momentum=momentum)
-	optimizer = RMSprop(lr=learn_rate, rho=0.9, epsilon=1e-08, decay=0.0)
+	#optimizer = RMSprop(lr=learn_rate, rho=0.8, epsilon=1e-08, decay=0.0)
+	optimizer = Adagrad(lr=learn_rate, epsilon=1e-08, decay=0.02)
+	#Adam(lr=learn_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
 	#adam R sq of -2
 	model.compile(loss='mean_squared_error',optimizer=optimizer) # optimizer='adam')
 
@@ -174,9 +207,13 @@ else:
 	#test=[fnTrainModelForMap(model,trainX,trainY,batch_size) for x in range(20)]
 	#model=model[len(tmp)-1]
 
+	# learning schedule callback
+	lrate = LearningRateScheduler(step_decay)
+	callbacks_list = [lrate]
+
 	if True:
-		for i in range(15): #10 ITERATIONs is best thus far
-			history=model.fit(trainX, trainY, nb_epoch=1, batch_size=batch_size, verbose=2, shuffle=False)
+		for i in range(85): #10 ITERATIONs is best thus far
+			history=model.fit(trainX, trainY, nb_epoch=1, batch_size=batch_size, verbose=2, callbacks=callbacks_list,shuffle=False)
 			#history.history['loss']
 			model.reset_states()
 	
@@ -214,7 +251,7 @@ print('Test Score: %.2f RMSE' % (testScore))
 
 print ('R2 score on Train Returns:' +str(r2_score(trainY,trainPredict)))
 
-print ('R2 score on Returns:' +str(r2_score(testY,testPredict)))
+print ('R2 score on Test Returns:' +str(r2_score(testY,testPredict)))
 
 #fig=plt.figure(figsize=(8,6))
 #fig.plot(trainY,label='Actual Train ')
@@ -222,8 +259,9 @@ print ('R2 score on Returns:' +str(r2_score(testY,testPredict)))
 #fig.show()
 
 #fig=plt.figure(figsize=(8,6))
-plt.plot(testY,label='Actual Test ')
-plt.plot(testPredict,label='*Predicted* Test ')
+plt.plot(testY,label='Actual SPY ')
+plt.plot(testPredict,label='*Predicted* SPY ')
+legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
 plt.show()
 
 if False:
