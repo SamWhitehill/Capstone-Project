@@ -222,7 +222,7 @@ else:
 	model.add(Dense(1)) #,activation ='relu' -> gives WORSE results.
 	model.add(Activation("linear"))
 
-	print ('model 2 layers ' + str(numNeurons) + ' neurons per layer, activation is sigmoid')
+	print ('model 2 layers ' + str(numNeurons) + ' neurons per layer, final activation is linear')
 	# Compile model
 	learn_rate=.0061 #reducing the learning rate improves the fit and r squared!!!
 
