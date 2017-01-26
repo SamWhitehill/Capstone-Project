@@ -36,7 +36,7 @@ from PowerForecast import run_network
 
 lstrPath ="C:\\Udacity\\NanoDegree\\Capstone Project\\MLTrading\\"
 #LOOKBACK window
-look_back =9
+look_back =7
 horizon =5
 
 
@@ -177,11 +177,18 @@ testX, testY = create_dataset(test,testTarget, look_back,horizon)
 trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], numFeatures))
 testX = np.reshape(testX, (testX.shape[0], testX.shape[1], numFeatures))
 # create and fit the LSTM network
-batch_size = 1
+batch_size = look_back #1
 
 blnLoadModel =False
 #run_network(X_train=trainX,y_train =trainY,X_test =testX,y_test =testY)
 
+lenTestData =len(testX)
+lRemainder =lenTestData % batch_size
+
+lenTestData =lenTestData-lRemainder
+#lenTestData=lenTestData-1
+testX=testX[:lenTestData]
+testY=testY[:lenTestData]
 
 if blnLoadModel:
 	model = load_model(lstrPath+'KerasStockModel.h5')
@@ -240,7 +247,8 @@ else:
 			print (i)
 	else:
 		model.fit(trainX, trainY, nb_epoch=20,  callbacks=[ResetStatesCallback()],
-			batch_size=look_back, validation_data=(testX, testY), verbose=2)
+			batch_size=look_back, verbose=2) #validation_data=(testX, testY), verbose=2)
+		#num samples for trainX and testX must be divisible by batch_size!!!
 
 	# make predictions
 	trainPredict = model.predict(trainX, batch_size=batch_size)
