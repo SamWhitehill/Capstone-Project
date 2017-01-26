@@ -36,7 +36,7 @@ from PowerForecast import run_network
 
 lstrPath ="C:\\Udacity\\NanoDegree\\Capstone Project\\MLTrading\\"
 #LOOKBACK window
-look_back =7
+look_back =4
 horizon =5
 
 
@@ -111,7 +111,7 @@ dataframe = pd.read_csv(lstrPath+'SPYRNN.csv',  engine='python')
 print('TRUNCATING DATAFRAME TO SPEED UP')
 ##############################################
 ##############################################
-dataframe=dataframe[:195]
+dataframe=dataframe[:199]
 dataframe.Date = pd.to_datetime(dataframe.Date)
 dataframe.index =dataframe['Date']
 
@@ -122,7 +122,8 @@ dataframe =dataframe[ pd.notnull(dataframe['Adj Close'])] #pDf =pDf[ pd.notnull(
 dataframe,lstColsdrop=fnComputeFeatures(dataframe,look_back,4,horizon,1,1)
 
 #lstCols =['Adj Close','rollingStdev20','rollingMax20','rollingMin20','OBV','upper_band','lower_band']
-lstCols =['Adj Close','CloseSlope','Open','CloseSlope','Close','Volume','RSI','OBV', 'High','Low','rollingMean50','rollingMean20','rollingStdev20','rollingMax20','rollingMin20']
+lstCols =['Adj Close','CloseSlope','Open','Close','MACD','RSI','OBV', 'High','Low','rollingMean50','rollingMean20','rollingStdev20','rollingMax20','rollingMin20']
+lstCols =['Adj Close','CloseSlope','OBV', 'rollingMean20','rollingStdev20','rollingMax20','rollingMin20']
 print ('running with slope lookback =4, look_back =' + str(look_back)+ ', natlog =' +str(ndaysNatLog) +' days ahead, 2 total LSTMS')
 
 #MACD
@@ -187,8 +188,11 @@ lRemainder =lenTestData % batch_size
 
 lenTestData =lenTestData-lRemainder
 #lenTestData=lenTestData-1
-testX=testX[:lenTestData]
-testY=testY[:lenTestData]
+validationX=testX[:8]
+validationY=testY[:8]
+
+testX =testX[:lenTestData]
+testY =testY[:lenTestData]
 
 if blnLoadModel:
 	model = load_model(lstrPath+'KerasStockModel.h5')
@@ -197,28 +201,30 @@ else:
 	model = Sequential()
 	#model.add(LSTM(4, batch_input_shape=(batch_size, look_back, 1), stateful=True))
 	#batch_input_shape=(batch_size, time_steps, features)
-	numNeurons =12 # try 4*look_back  #increasing neuron sappears to increase volatility too much ?
-	numNeurons=4*look_back  
+	numNeurons =100 # try 4*look_back  #increasing neuron sappears to increase volatility too much ?
+	numNeurons=4*look_back *numFeatures #4*look_back *numFeatures
 	#try softsign activation, try adagrad too
 	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
 	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
 	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
 	#?adding drop out prior to input
-	model.add(Dropout(0.2,batch_input_shape=(batch_size, look_back, numFeatures)))	
-
-	model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
+	model.add(Dropout(0.38,batch_input_shape=(batch_size, look_back, numFeatures)))	
+	print ('dropout at 0.38' )
+	model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
 	#model.add(Dropout(0.2))
-	model.add(LSTM(numNeurons, batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,consume_less='cpu'))
+	model.add(LSTM(numNeurons,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,consume_less='cpu'))
 	#model.add(Dropout(0.2))
 
-	print ('model 2 layers ' + str(numNeurons) + ' neurons per layer, activation is NONE')
+
 	#print ('using sigmoid decay learning rate')
 	#adding lots of layers over smoothes the fit
 
 	model.add(Dense(1)) #,activation ='relu' -> gives WORSE results.
 	model.add(Activation("linear"))
+
+	print ('model 2 layers ' + str(numNeurons) + ' neurons per layer, activation is sigmoid')
 	# Compile model
-	learn_rate=.0013 #reducing the learning rate improves the fit and r squared!!!
+	learn_rate=.0061 #reducing the learning rate improves the fit and r squared!!!
 
 	#momentum=0
 	#optimizer = SGD(lr=learn_rate, momentum=momentum)
@@ -239,15 +245,17 @@ else:
 	callbacks_list = [lrate]
 
 	if False:
-		for i in range(135): #10 ITERATIONs is best thus far
+		for i in range(20): #10 ITERATIONs is best thus far
 			history=model.fit(trainX, trainY, nb_epoch=1, batch_size=batch_size, verbose=2, shuffle=False)
 			#history.history['loss']
 			
 			model.reset_states()
 			print (i)
+			
 	else:
-		model.fit(trainX, trainY, nb_epoch=20,  callbacks=[ResetStatesCallback()],
-			batch_size=look_back, verbose=2) #validation_data=(testX, testY), verbose=2)
+		model.fit(trainX, trainY, nb_epoch=29,  callbacks=[ResetStatesCallback()],shuffle=False,
+			batch_size=look_back, verbose=2,validation_data=(validationX, validationY)) #validation_data=(testX, testY), verbose=2)
+		print ('using linear on last layer, hard sigmoid and tanh on LSTMs')
 		#num samples for trainX and testX must be divisible by batch_size!!!
 
 	# make predictions
