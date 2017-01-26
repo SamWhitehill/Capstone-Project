@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import math
 from keras.models import Sequential
-from keras.layers import Dense
+from keras.layers import Dense, Dropout,Activation
 from keras.layers import LSTM
 from keras.optimizers import SGD
 from keras.optimizers import RMSprop
@@ -32,9 +32,11 @@ from keras.models import load_model
 from MainForecastModule import organize_data
 from MainForecastModule import window_stack
 
+from PowerForecast import run_network
+
 lstrPath ="C:\\Udacity\\NanoDegree\\Capstone Project\\MLTrading\\"
 #LOOKBACK window
-look_back =6
+look_back =9
 horizon =5
 
 
@@ -69,14 +71,17 @@ def fnTrainViaCallback(model, x,y,pBatchSize):
 #np.exp(-0.02*x)/( 1 + np.exp(2*(x-5)))
 
 def step_decay(epoch):
-	initial_lrate = 0.80 #The Alpha used was .95 
+	initial_lrate = 0.5 #The Alpha used was .95 
+	#increasing the learning rate (initial appears to flatten out the prediction
 	drop = 0.5
-	epochs_drop = 8 #10.0
+	epochs_drop = 10.0
 	ParmA= -5E-11 
 	ParmB= 0.104 
-	ParmC= 50 
-	lrate=1 * math.exp(-ParmA * epoch)/( 1 + math.exp(ParmB * (epoch-ParmC)))
+	ParmC= 30 
+	lrate=initial_lrate * math.exp(-ParmA * epoch)/( 1 + math.exp(ParmB * (epoch-ParmC)))
 	#lrate = initial_lrate * math.pow(drop, math.floor((1+epoch)/epochs_drop))
+	#print ('using decay initial_lrate=.' +str(initial_lrate) +' * math.pow(drop, math.floor((1+epoch)/epochs_drop))')
+	print ('using sigmoid decay')
 	return lrate
 
 
@@ -103,6 +108,10 @@ np.random.seed(7)
 #dataframe = pd.read_csv(lstrPath+'international-airline-passengers.csv', usecols=[1], engine='python', skipfooter=3)
 #dataframe = pd.read_csv(lstrPath+'SPY with returns.csv',  engine='python', skipfooter=3)
 dataframe = pd.read_csv(lstrPath+'SPYRNN.csv',  engine='python')
+print('TRUNCATING DATAFRAME TO SPEED UP')
+##############################################
+##############################################
+dataframe=dataframe[:195]
 dataframe.Date = pd.to_datetime(dataframe.Date)
 dataframe.index =dataframe['Date']
 
@@ -113,7 +122,7 @@ dataframe =dataframe[ pd.notnull(dataframe['Adj Close'])] #pDf =pDf[ pd.notnull(
 dataframe,lstColsdrop=fnComputeFeatures(dataframe,look_back,4,horizon,1,1)
 
 #lstCols =['Adj Close','rollingStdev20','rollingMax20','rollingMin20','OBV','upper_band','lower_band']
-lstCols =['Adj Close','Open','CloseSlope','Close','Volume','RSI','OBV', 'High','Low','rollingMean50','rollingMean20','rollingStdev20','rollingMax20','rollingMin20']
+lstCols =['Adj Close','CloseSlope','Open','CloseSlope','Close','Volume','RSI','OBV', 'High','Low','rollingMean50','rollingMean20','rollingStdev20','rollingMax20','rollingMin20']
 print ('running with slope lookback =4, look_back =' + str(look_back)+ ', natlog =' +str(ndaysNatLog) +' days ahead, 2 total LSTMS')
 
 #MACD
@@ -171,6 +180,9 @@ testX = np.reshape(testX, (testX.shape[0], testX.shape[1], numFeatures))
 batch_size = 1
 
 blnLoadModel =False
+#run_network(X_train=trainX,y_train =trainY,X_test =testX,y_test =testY)
+
+
 if blnLoadModel:
 	model = load_model(lstrPath+'KerasStockModel.h5')
 else:
@@ -178,25 +190,33 @@ else:
 	model = Sequential()
 	#model.add(LSTM(4, batch_input_shape=(batch_size, look_back, 1), stateful=True))
 	#batch_input_shape=(batch_size, time_steps, features)
-	numNeurons =4  #increasing neuron sappears to increase volatility too much ?
+	numNeurons =12 # try 4*look_back  #increasing neuron sappears to increase volatility too much ?
+	numNeurons=4*look_back  
 	#try softsign activation, try adagrad too
 	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
 	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
 	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
-	model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu',activation='softsign'))
-	model.add(LSTM(numNeurons, batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,consume_less='cpu',activation='softsign'))
-	
-	print ('model 2 layers ' + str(numNeurons) + ' neurons per layer, activation is softsign')
-	
+	#?adding drop out prior to input
+	model.add(Dropout(0.2,batch_input_shape=(batch_size, look_back, numFeatures)))	
+
+	model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
+	#model.add(Dropout(0.2))
+	model.add(LSTM(numNeurons, batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,consume_less='cpu'))
+	#model.add(Dropout(0.2))
+
+	print ('model 2 layers ' + str(numNeurons) + ' neurons per layer, activation is NONE')
+	#print ('using sigmoid decay learning rate')
 	#adding lots of layers over smoothes the fit
 
-	model.add(Dense(1,activation='softsign')) #,activation ='relu' -> gives WORSE results.
+	model.add(Dense(1)) #,activation ='relu' -> gives WORSE results.
+	model.add(Activation("linear"))
 	# Compile model
-	learn_rate=.0033 #reducing the learning rate improves the fit and r squared!!!
+	learn_rate=.0013 #reducing the learning rate improves the fit and r squared!!!
+
 	#momentum=0
 	#optimizer = SGD(lr=learn_rate, momentum=momentum)
-	#optimizer = RMSprop(lr=learn_rate, rho=0.8, epsilon=1e-08, decay=0.0)
-	optimizer = Adagrad(lr=learn_rate, epsilon=1e-08, decay=0.02)
+	optimizer = RMSprop(lr=learn_rate, rho=0.9, epsilon=1e-08, decay=0.001)
+	#optimizer = Adagrad(lr=learn_rate, epsilon=1e-08, decay=0.02)
 	#Adam(lr=learn_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
 	#adam R sq of -2
 	model.compile(loss='mean_squared_error',optimizer=optimizer) # optimizer='adam')
@@ -211,12 +231,17 @@ else:
 	lrate = LearningRateScheduler(step_decay)
 	callbacks_list = [lrate]
 
-	if True:
-		for i in range(85): #10 ITERATIONs is best thus far
-			history=model.fit(trainX, trainY, nb_epoch=1, batch_size=batch_size, verbose=2, callbacks=callbacks_list,shuffle=False)
+	if False:
+		for i in range(135): #10 ITERATIONs is best thus far
+			history=model.fit(trainX, trainY, nb_epoch=1, batch_size=batch_size, verbose=2, shuffle=False)
 			#history.history['loss']
+			
 			model.reset_states()
-	
+			print (i)
+	else:
+		model.fit(trainX, trainY, nb_epoch=20,  callbacks=[ResetStatesCallback()],
+			batch_size=look_back, validation_data=(testX, testY), verbose=2)
+
 	# make predictions
 	trainPredict = model.predict(trainX, batch_size=batch_size)
 
@@ -254,15 +279,19 @@ print ('R2 score on Train Returns:' +str(r2_score(trainY,trainPredict)))
 print ('R2 score on Test Returns:' +str(r2_score(testY,testPredict)))
 
 #fig=plt.figure(figsize=(8,6))
-#fig.plot(trainY,label='Actual Train ')
-#fig.plot(trainPredict,label='Predicted Train ')
-#fig.show()
+#plt.plot(trainY,label='Actual Train ')
+#plt.plot(trainPredict,label='Predicted Train ')
+#plt.show()
 
-#fig=plt.figure(figsize=(8,6))
+#np.savetxt("C:\\temp\\trainY.csv", trainY, delimiter=',')
+#np.savetxt("C:\\temp\\trainPredict.csv", trainPredict, delimiter=',')
+
 plt.plot(testY,label='Actual SPY ')
 plt.plot(testPredict,label='*Predicted* SPY ')
 legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
 plt.show()
+
+
 
 if False:
 	# shift train predictions for plotting
