@@ -1,13 +1,14 @@
 #import os
 #print(os.path.expanduser('~'))
 #http://machinelearningmastery.com/using-learning-rate-schedules-deep-learning-models-python-keras/
-#https://github.com/CanePunma/Stock_Price_Prediction_With_RNNs/blob/master/stock_prediction_keras_FINAL.ipynb
+#https://\.com/CanePunma/Stock_Price_Prediction_With_RNNs/blob/master/stock_prediction_keras_FINAL.ipynb
 #https://github.com/anujgupta82/DeepNets/blob/master/Online_Learning/Online_Learning_DeepNets.ipynb
 #http://machinelearningmastery.com/grid-search-hyperparameters-deep-learning-models-python-keras/
 #http://philipperemy.github.io/keras-stateful-lstm/
 # LSTM for international airline passengers problem with memory
 #http://www.jakob-aungiers.com/articles/a/LSTM-Neural-Network-for-Time-Series-Prediction
 #cite: http://machinelearningmastery.com/time-series-prediction-lstm-recurrent-neural-networks-python-keras/
+#https://github.com/FreddieWitherden/ta/blob/master/ta.py
 
 from keras.callbacks import Callback
 import numpy as np
@@ -32,12 +33,92 @@ from keras.models import load_model
 from MainForecastModule import organize_data
 from MainForecastModule import window_stack
 
-from PowerForecast import run_network
+#from modGetStockData import fnGetStockData 
+#from PowerForecast import run_network
 
 lstrPath ="C:\\Udacity\\NanoDegree\\Capstone Project\\MLTrading\\"
 #LOOKBACK window
-look_back =4
+look_back =8 #LOOK back at 30 had worse fit than 20s
 horizon =5
+lstrStock ='SPY'
+
+
+def fnGetStockData(pStrFileName,nDaysReturnLookBack, look_back, horizon,pLstCols):
+    #retrieve stock data from web or  file
+    #process it by calculating log returns over specified lookback
+    #calculate features needed
+    #normalize data via feature scaling
+    # pivot data into numpy arrays so it can be fed into RNN model.
+    #return X features and Y target data from original stock data 
+    
+    dataframe = pd.read_csv(pStrFileName,  engine='python')
+
+    dataframe.Date = pd.to_datetime(dataframe.Date) 
+    dataframe.index =dataframe['Date']
+
+    ndaysNatLog=nDaysReturnLookBack #40
+
+    dataframe=fnGetNaturalLogPrices(dataframe,ndaysNatLog)
+    dataframe =dataframe[ pd.notnull(dataframe['Adj Close'])] #pDf =pDf[ pd.notnull(pDf['CloseSlope'])]
+    #fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookback=11,pSegments=4)
+    dataframe,lstColsSR=fnComputeFeatures(dataframe,look_back, 3,horizon,22,4)
+
+    #lstCols =['Adj Close','rollingStdev20','rollingMax20','rollingMin20','OBV','upper_band','lower_band']
+    #'RealBody','Color','BarType','UpperShadow','LowerShadow'
+    lstCols=pLstCols
+    #lstCols =['2DayNetPriceChange','CloseSlope','rollingMean20','Adj Close','MACD','Volume',#'upper_band','lower_band',
+     #        'High','Low','rollingStdev20','rollingMax20','rollingMin20']#,'ZigZag']#,'fastk','fulld','fullk'] #,'upAroon','downAroon']#,'fastk','fulld','fullk'] # ['S1','S2','S3','R1','R2','R3']
+    #lstCols =['Adj Close','CloseSlope', 'rollingMean20','rollingStdev20','rollingMax20','rollingMin20']
+    #lstCols =['Adj Close'], .45 R sq.
+    print ('running with slope lookback =4, look_back =' + str(look_back)+ ', natlog =' +str(ndaysNatLog) +' days ahead, 2 total LSTMS')
+
+    #MACD adds value to R^2, ForceIndex does NOT! Volumeslope does not
+    #lstCols =['Adj Close','CloseSlope','rollingMax20','rollingMin20','HighLowRange','rollingStdev20','rollingMean20'] -neg. r^2
+    #lstCols =['Adj Close','rollingStdev20','RSI','MACD','DiffercenceBtwnAvgVol','HighLowRange','rollingMean20','Volume']# .01 rsq
+    #lstCols =['Adj Close'] #.19 #,'rollingStdev20','RSI','MACD','DiffercenceBtwnAvgVol']
+    numFeatures =len(lstCols)	
+    print (lstCols)
+    dataframe=dataframe[lstCols] #,'Volume','rollingMax20','rollingMin20']]
+
+    targetSet =dataframe['Adj Close'].values
+    targetSet =targetSet.astype('float32')
+
+    dataset = dataframe.values
+    dataset = dataset.astype('float32')
+
+    # normalize the dataset
+    if True:
+            #print ('temporarily not scaling so we can debug')
+            #DO NOT scale the target, only features
+            scaler = MinMaxScaler(feature_range=(0, 1))
+            #Targetscaler = MinMaxScaler(feature_range=(0, 1))
+            
+            dataset = scaler.fit_transform(dataset)
+            
+            #targetSet =Targetscaler.fit_transform(targetSet)
+
+    else:
+            print ('temporarily not scaling so we can debug')
+
+
+    # split into train and test sets
+    train_size = int(len(dataset)) # * 0.65)
+
+    #test_size = len(dataset) - train_size
+    #train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
+    train = dataset[0:train_size,:]
+
+    #trainTarget, testTarget =targetSet[0:train_size], targetSet[train_size:len(targetSet)]
+    trainTarget =targetSet[0:train_size]
+    # reshape into X=t and Y=t+1
+
+    trainX, trainY = create_dataset(train,trainTarget ,look_back,horizon)	
+    #testX, testY = create_dataset(test,testTarget, look_back,horizon)
+    # reshape input to be [samples, time steps, features]
+    trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], numFeatures))
+    #testX = np.reshape(testX, (testX.shape[0], testX.shape[1], numFeatures))
+
+    return trainX, trainY
 
 
 class ResetStatesCallback(Callback):
@@ -71,22 +152,80 @@ def fnTrainViaCallback(model, x,y,pBatchSize):
 #np.exp(-0.02*x)/( 1 + np.exp(2*(x-5)))
 
 def step_decay(epoch):
-	initial_lrate = 0.5 #The Alpha used was .95 
+	initial_lrate = 0.0012 #The Alpha used was .95 
 	#increasing the learning rate (initial appears to flatten out the prediction
 	drop = 0.5
 	epochs_drop = 10.0
 	ParmA= -5E-11 
 	ParmB= 0.104 
-	ParmC= 30 
+	ParmC= 50 
 	lrate=initial_lrate * math.exp(-ParmA * epoch)/( 1 + math.exp(ParmB * (epoch-ParmC)))
 	#lrate = initial_lrate * math.pow(drop, math.floor((1+epoch)/epochs_drop))
 	#print ('using decay initial_lrate=.' +str(initial_lrate) +' * math.pow(drop, math.floor((1+epoch)/epochs_drop))')
-	print ('using sigmoid decay')
+	#print ('using sigmoid decay')
 	return lrate
 
+def fnGetModel(blnStateful=True):
+    model = Sequential()
+    #numNeurons =100 # try 4*look_back  #increasing neuron sappears to increase volatility too much ?
+    numNeurons=4*numFeatures #4*look_back *numFeatures
+    #numNeurons=110
+    #numNeurons=numNeurons+8
+    #try softsign activation, try adagrad too
+    #model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,`sume_less='cpu'))
+    #model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
+    #model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
+    #?adding drop out prior to input
+    #model.add(Dropout(0.25,batch_input_shape=(batch_size, look_back, numFeatures)))	
+    print ('dropout at 0.25' )
+
+    #model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+    model.add(Dropout(0.35,batch_input_shape=(batch_size, look_back, numFeatures)))
+    
+    model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+   
+    model.add(Dropout(0.35,batch_input_shape=(batch_size, look_back, numFeatures)))
+    
+    model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+   
+    model.add(Dropout(0.35,batch_input_shape=(batch_size, look_back, numFeatures)))
+    
+    model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+   
+    model.add(Dropout(0.35,batch_input_shape=(batch_size, look_back, numFeatures)))
+   
+    model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+ 
+
+    model.add(Dropout(0.35,batch_input_shape=(batch_size, look_back, numFeatures)))
+    
+    model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+ 
+    model.add(Dropout(0.45,batch_input_shape=(batch_size, look_back, numFeatures)))
+
+    model.add(LSTM(numNeurons,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful)) #consume_less='cpu'
+
+    model.add(Dropout(0.25,batch_input_shape=(batch_size, look_back, numFeatures)))
+    #REMOVING dropout severely hurts score/fit
+    model.add(Dense(1)) #,activation ='relu' -> gives WORSE results.
+    model.add(Activation("linear"))
+
+    print ('model 2 layers ' + str(numNeurons) + ' neurons per layer, final activation is linear')
+    # Compile model
+    learn_rate=0.0000017 #reducing the learning rate improves the fit and r squared!!!
+
+    #momentum=0
+    #optimizer = SGD(lr=learn_rate, momentum=momentum)
+    optimizer = RMSprop(lr=learn_rate, rho=0.9, epsilon=1e-08, decay=0.0000)
+    #optimizer = Adagrad(lr=learn_rate, epsilon=1e-08, decay=0.02)
+    #Adam(lr=learn_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+    #adam R sq of -2
+    model.compile(loss='mean_squared_error',optimizer=optimizer) # optimizer='adam')
+
+    return model
 
 # convert an array of values into a dataset matrix
-def create_dataset(dataset, targetSet, look_back=1,horizon=1, positionY=0):
+def create_dataset(dataset, targetSet=None, look_back=1,horizon=1, positionY=0):
         dataX, dataY = [], []
         #y =dataset[-1+horizon+look_back:len(dataset)-1]
         #y =np.array([i[positionY] for i in targetSet])
@@ -107,78 +246,87 @@ np.random.seed(7)
 # load the dataset
 #dataframe = pd.read_csv(lstrPath+'international-airline-passengers.csv', usecols=[1], engine='python', skipfooter=3)
 #dataframe = pd.read_csv(lstrPath+'SPY with returns.csv',  engine='python', skipfooter=3)
-dataframe = pd.read_csv(lstrPath+'SPYRNN.csv',  engine='python')
-print('TRUNCATING DATAFRAME TO SPEED UP')
-##############################################
-##############################################
-dataframe=dataframe[:199]
-dataframe.Date = pd.to_datetime(dataframe.Date)
-dataframe.index =dataframe['Date']
+#dataframe = pd.read_csv(lstrPath+'SPY_train.csv',  engine='python')
 
-ndaysNatLog=44
+lstCols =['2DayNetPriceChange','CloseSlope','rollingMean20','Adj Close','MACD','Volume',#'upper_band','lower_band',
+             'High','Low','rollingStdev20','rollingMax20','rollingMin20']
+numFeatures =len(lstCols)
+trainX, trainY = fnGetStockData(lstrPath+lstrStock+'dfQuotes2008.csv',40, look_back, horizon,lstCols)
+testX, testY = fnGetStockData(lstrPath+lstrStock+'dfQuotesTest2008.csv',40, look_back, horizon,lstCols)
 
-dataframe=fnGetNaturalLogPrices(dataframe,ndaysNatLog)
-dataframe =dataframe[ pd.notnull(dataframe['Adj Close'])] #pDf =pDf[ pd.notnull(pDf['CloseSlope'])]
-dataframe,lstColsdrop=fnComputeFeatures(dataframe,look_back,4,horizon,1,1)
+if False:
+    #moved this code into fnGetStockData above
+    dataframe = pd.read_csv(lstrPath+'QQQdfQuotes.csv',  engine='python')
 
-#lstCols =['Adj Close','rollingStdev20','rollingMax20','rollingMin20','OBV','upper_band','lower_band']
-lstCols =['Adj Close','CloseSlope','Open','Close','MACD','RSI','OBV', 'High','Low','rollingMean50','rollingMean20','rollingStdev20','rollingMax20','rollingMin20']
-lstCols =['Adj Close','CloseSlope','OBV', 'rollingMean20','rollingStdev20','rollingMax20','rollingMin20']
-print ('running with slope lookback =4, look_back =' + str(look_back)+ ', natlog =' +str(ndaysNatLog) +' days ahead, 2 total LSTMS')
+    print('TRUNCATING DATAFRAME TO SPEED UP')
+    ##############################################
+    ##############################################
+    dataframe=dataframe[:620] #248
+    dataframe.Date = pd.to_datetime(dataframe.Date) 
+    dataframe.index =dataframe['Date']
 
-#MACD
-#lstCols =['Adj Close','CloseSlope','rollingMax20','rollingMin20','HighLowRange','rollingStdev20','rollingMean20'] -neg. r^2
-#lstCols =['Adj Close','rollingStdev20','RSI','MACD','DiffercenceBtwnAvgVol','HighLowRange','rollingMean20','Volume']# .01 rsq
-#lstCols =['Adj Close'] #.19 #,'rollingStdev20','RSI','MACD','DiffercenceBtwnAvgVol']
-numFeatures =len(lstCols)	
-print (lstCols)
-dataframe=dataframe[lstCols] #,'Volume','rollingMax20','rollingMin20']]
+    ndaysNatLog=40
 
-targetSet =dataframe['Adj Close'].values
-targetSet =targetSet.astype('float32')
+    dataframe=fnGetNaturalLogPrices(dataframe,ndaysNatLog)
+    dataframe =dataframe[ pd.notnull(dataframe['Adj Close'])] #pDf =pDf[ pd.notnull(pDf['CloseSlope'])]
+    #fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookback=11,pSegments=4)
+    dataframe,lstColsSR=fnComputeFeatures(dataframe,look_back, 5,horizon,22,4)
 
-dataset = dataframe.values
-dataset = dataset.astype('float32')
+    #lstCols =['Adj Close','rollingStdev20','rollingMax20','rollingMin20','OBV','upper_band','lower_band']
+    #'RealBody','Color','BarType','UpperShadow','LowerShadow'
+    lstCols =['2DayNetPriceChange','CloseSlope','rollingMean20','Adj Close','MACD','Volume',#'upper_band','lower_band',
+             'High','Low','rollingStdev20','rollingMax20','rollingMin20']#,'ZigZag']#,'fastk','fulld','fullk'] #,'upAroon','downAroon']#,'fastk','fulld','fullk'] # ['S1','S2','S3','R1','R2','R3']
+    #lstCols =['Adj Close','CloseSlope', 'rollingMean20','rollingStdev20','rollingMax20','rollingMin20']
+    #lstCols =['Adj Close'], .45 R sq.
+    print ('running with slope lookback =4, look_back =' + str(look_back)+ ', natlog =' +str(ndaysNatLog) +' days ahead, 2 total LSTMS')
 
-# normalize the dataset
-if True:
-	#print ('temporarily not scaling so we can debug')
-	#DO NOT scale the target, only features
-	scaler = MinMaxScaler(feature_range=(0, 1))
-	Targetscaler = MinMaxScaler(feature_range=(0, 1))
+    #MACD adds value to R^2, ForceIndex does NOT! Volumeslope does not
+    #lstCols =['Adj Close','CloseSlope','rollingMax20','rollingMin20','HighLowRange','rollingStdev20','rollingMean20'] -neg. r^2
+    #lstCols =['Adj Close','rollingStdev20','RSI','MACD','DiffercenceBtwnAvgVol','HighLowRange','rollingMean20','Volume']# .01 rsq
+    #lstCols =['Adj Close'] #.19 #,'rollingStdev20','RSI','MACD','DiffercenceBtwnAvgVol']
+    numFeatures =len(lstCols)	
+    print (lstCols)
+    dataframe=dataframe[lstCols] #,'Volume','rollingMax20','rollingMin20']]
+
+    targetSet =dataframe['Adj Close'].values
+    targetSet =targetSet.astype('float32')
+
+    dataset = dataframe.values
+    dataset = dataset.astype('float32')
+
+    # normalize the dataset
+    if True:
+	    #print ('temporarily not scaling so we can debug')
+	    #DO NOT scale the target, only features
+	    scaler = MinMaxScaler(feature_range=(0, 1))
+	    #Targetscaler = MinMaxScaler(feature_range=(0, 1))
 	
-	dataset = scaler.fit_transform(dataset)
+	    dataset = scaler.fit_transform(dataset)
 	
-	#targetSet =Targetscaler.fit_transform(targetSet)
+	    #targetSet =Targetscaler.fit_transform(targetSet)
 
-else:
-	print ('temporarily not scaling so we can debug')
+    else:
+	    print ('temporarily not scaling so we can debug')
 
 
-# split into train and test sets
-train_size = int(len(dataset) * 0.65)
+    # split into train and test sets
+    train_size = int(len(dataset) * 0.65)
 
-test_size = len(dataset) - train_size
-train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
+    test_size = len(dataset) - train_size
+    train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
 
-trainTarget, testTarget =targetSet[0:train_size], targetSet[train_size:len(targetSet)]
-# reshape into X=t and Y=t+1
+    trainTarget, testTarget =targetSet[0:train_size], targetSet[train_size:len(targetSet)]
+    # reshape into X=t and Y=t+1
 
-#different method for obtaining train, test  data
-#lEndIndex =(len(df)-horizon)
-#discard X, use y
-#X,y = organize_data(train, look_back, horizon)
+    trainX, trainY = create_dataset(train,trainTarget ,look_back,horizon)	
+    testX, testY = create_dataset(test,testTarget, look_back,horizon)
+    # reshape input to be [samples, time steps, features]
+    trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], numFeatures))
+    testX = np.reshape(testX, (testX.shape[0], testX.shape[1], numFeatures))
 
-#use this X
-#X = window_stack(dataframe[0:lEndIndex].values, stepsize=1, width=look_back   ) 
 
-trainX, trainY = create_dataset(train,trainTarget ,look_back,horizon)	
-testX, testY = create_dataset(test,testTarget, look_back,horizon)
-# reshape input to be [samples, time steps, features]
-trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], numFeatures))
-testX = np.reshape(testX, (testX.shape[0], testX.shape[1], numFeatures))
 # create and fit the LSTM network
-batch_size = look_back #1
+batch_size = look_back*2 #*5 #1 tried increasing batch, worse fit for batch_size=1
 
 blnLoadModel =False
 #run_network(X_train=trainX,y_train =trainY,X_test =testX,y_test =testY)
@@ -188,52 +336,27 @@ lRemainder =lenTestData % batch_size
 
 lenTestData =lenTestData-lRemainder
 #lenTestData=lenTestData-1
-validationX=testX[:8]
-validationY=testY[:8]
+validationX=testX[:batch_size]
+validationY=testY[:batch_size]
 
 testX =testX[:lenTestData]
 testY =testY[:lenTestData]
 
+#must slice off training data to be divisible by batch_size
+lLenData =len(trainX)
+lRemainder =lLenData % batch_size
+lLenData =lLenData-lRemainder
+
+trainX =trainX[:lLenData]
+trainY=trainY[:lLenData]
+
+
+
 if blnLoadModel:
 	model = load_model(lstrPath+'KerasStockModel.h5')
 else:
-
-	model = Sequential()
-	#model.add(LSTM(4, batch_input_shape=(batch_size, look_back, 1), stateful=True))
-	#batch_input_shape=(batch_size, time_steps, features)
-	numNeurons =100 # try 4*look_back  #increasing neuron sappears to increase volatility too much ?
-	numNeurons=4*look_back *numFeatures #4*look_back *numFeatures
-	#try softsign activation, try adagrad too
-	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
-	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
-	#model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
-	#?adding drop out prior to input
-	model.add(Dropout(0.38,batch_input_shape=(batch_size, look_back, numFeatures)))	
-	print ('dropout at 0.38' )
-	model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
-	#model.add(Dropout(0.2))
-	model.add(LSTM(numNeurons,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,consume_less='cpu'))
-	#model.add(Dropout(0.2))
-
-
-	#print ('using sigmoid decay learning rate')
-	#adding lots of layers over smoothes the fit
-
-	model.add(Dense(1)) #,activation ='relu' -> gives WORSE results.
-	model.add(Activation("linear"))
-
-	print ('model 2 layers ' + str(numNeurons) + ' neurons per layer, final activation is linear')
-	# Compile model
-	learn_rate=.0061 #reducing the learning rate improves the fit and r squared!!!
-
-	#momentum=0
-	#optimizer = SGD(lr=learn_rate, momentum=momentum)
-	optimizer = RMSprop(lr=learn_rate, rho=0.9, epsilon=1e-08, decay=0.001)
-	#optimizer = Adagrad(lr=learn_rate, epsilon=1e-08, decay=0.02)
-	#Adam(lr=learn_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
-	#adam R sq of -2
-	model.compile(loss='mean_squared_error',optimizer=optimizer) # optimizer='adam')
-
+        model=fnGetModel(False)
+	
 	#model=fnTrainViaCallback(model,trainX,trainY,batch_size)
 	
 	#tmp=list(map(fnTrainModelForMap(model,trainX,trainY,batch_size),range(10)))
@@ -241,27 +364,28 @@ else:
 	#model=model[len(tmp)-1]
 
 	# learning schedule callback
-	lrate = LearningRateScheduler(step_decay)
-	callbacks_list = [lrate]
+        lrate = LearningRateScheduler(step_decay)
+        callbacks_list = [lrate]
 
-	if False:
-		for i in range(20): #10 ITERATIONs is best thus far
-			history=model.fit(trainX, trainY, nb_epoch=1, batch_size=batch_size, verbose=2, shuffle=False)
-			#history.history['loss']
+        if False:
+            
+            for i in range(320): #10 ITERATIONs is best thus far
+                    history=model.fit(trainX, trainY, nb_epoch=1, batch_size=batch_size, verbose=2, shuffle=False)
+                    #history.history['loss']
+                    
+                    model.reset_states()
+                    print (i)
 			
-			model.reset_states()
-			print (i)
-			
-	else:
-		model.fit(trainX, trainY, nb_epoch=29,  callbacks=[ResetStatesCallback()],shuffle=False,
-			batch_size=look_back, verbose=2,validation_data=(validationX, validationY)) #validation_data=(testX, testY), verbose=2)
-		print ('using linear on last layer, hard sigmoid and tanh on LSTMs')
-		#num samples for trainX and testX must be divisible by batch_size!!!
+        else:
+            model.fit(trainX, trainY, nb_epoch=850, #  callbacks=[ResetStatesCallback()], #shuffle=False,
+                    batch_size=batch_size, verbose=2) #,validation_data=(validationX, validationY)) #validation_data=(testX, testY), verbose=2)
+            print ('using linear on last layer, hard sigmoid and tanh on LSTMs')
+            #num samples for trainX and testX must be divisible by batch_size!!!
 
-	# make predictions
-	trainPredict = model.predict(trainX, batch_size=batch_size)
+        # make predictions
+        trainPredict = model.predict(trainX, batch_size=batch_size)
 
-	model.save(lstrPath+'KerasStockModelNew.h5') 
+        model.save(lstrPath+'KerasStockModelNew.h5') 
 
 model.reset_states()
 
@@ -299,11 +423,11 @@ print ('R2 score on Test Returns:' +str(r2_score(testY,testPredict)))
 #plt.plot(trainPredict,label='Predicted Train ')
 #plt.show()
 
-#np.savetxt("C:\\temp\\trainY.csv", trainY, delimiter=',')
-#np.savetxt("C:\\temp\\trainPredict.csv", trainPredict, delimiter=',')
+#np.savetxt("C:\\temp\\testY.csv", testY, delimiter=',')
+#np.savetxt("C:\\temp\\testX.csv", testX, delimiter=',')
 
-plt.plot(testY,label='Actual SPY ')
-plt.plot(testPredict,label='*Predicted* SPY ')
+plt.plot(testY,label='Actual '+lstrStock)
+plt.plot(testPredict,label='*Predicted* '+lstrStock)
 legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
 plt.show()
 
