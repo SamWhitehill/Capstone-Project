@@ -10,9 +10,13 @@
 #cite: http://machinelearningmastery.com/time-series-prediction-lstm-recurrent-neural-networks-python-keras/
 #https://github.com/FreddieWitherden/ta/blob/master/ta.py
 
+from IPython.display import display
+
 from keras.callbacks import Callback
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
 import pandas as pd
 import math
 from keras.models import Sequential
@@ -118,7 +122,10 @@ def fnGetStockData(pStrFileName,nDaysReturnLookBack, look_back, horizon,pLstCols
     trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], numFeatures))
     #testX = np.reshape(testX, (testX.shape[0], testX.shape[1], numFeatures))
 
-    return trainX, trainY
+    #return naive benchmark which is just last known value of stock return
+    benchmark = dataframe[['Adj Close']][look_back -1:len(dataframe)-horizon]
+    benchmark['Date'] =benchmark.index
+    return trainX, trainY, benchmark
 
 
 class ResetStatesCallback(Callback):
@@ -164,6 +171,21 @@ def step_decay(epoch):
 	#print ('using decay initial_lrate=.' +str(initial_lrate) +' * math.pow(drop, math.floor((1+epoch)/epochs_drop))')
 	#print ('using sigmoid decay')
 	return lrate
+
+def fnSliceOffDataPerBatchSize(pFeatures=None,pTarget=None, pBatch_Size=1):
+    #must slice off data to match batch_size per Keras requirement when training by batch
+    #must slice off training data to be divisible by batch_size
+    lLenData =len(pFeatures)
+    lRemainder =lLenData % pBatch_Size
+    lLenData =lLenData-lRemainder
+
+    pFeatures =pFeatures[:lLenData]
+    
+    if pTarget !=None:
+        pTarget=pTarget[:lLenData]
+
+    return pFeatures, pTarget
+
 
 def fnGetModel(blnStateful=True):
     model = Sequential()
@@ -251,8 +273,8 @@ np.random.seed(7)
 lstCols =['2DayNetPriceChange','CloseSlope','rollingMean20','Adj Close','MACD','Volume',#'upper_band','lower_band',
              'High','Low','rollingStdev20','rollingMax20','rollingMin20']
 numFeatures =len(lstCols)
-trainX, trainY = fnGetStockData(lstrPath+lstrStock+'dfQuotes2008.csv',40, look_back, horizon,lstCols)
-testX, testY = fnGetStockData(lstrPath+lstrStock+'dfQuotesTest2008.csv',40, look_back, horizon,lstCols)
+trainX, trainY, trainBMark = fnGetStockData(lstrPath+lstrStock+'dfQuotes2008.csv',40, look_back, horizon,lstCols)
+testX, testY, testBMark = fnGetStockData(lstrPath+lstrStock+'dfQuotesTest2008.csv',40, look_back, horizon,lstCols)
 
 if False:
     #moved this code into fnGetStockData above
@@ -331,24 +353,30 @@ batch_size = look_back*2 #*5 #1 tried increasing batch, worse fit for batch_size
 blnLoadModel =False
 #run_network(X_train=trainX,y_train =trainY,X_test =testX,y_test =testY)
 
-lenTestData =len(testX)
-lRemainder =lenTestData % batch_size
+testX,testY =fnSliceOffDataPerBatchSize(testX,testY ,batch_size)
 
-lenTestData =lenTestData-lRemainder
+testBMark,t =fnSliceOffDataPerBatchSize(testBMark,None ,batch_size)
+#lenTestData =len(testX)
+#lRemainder =lenTestData % batch_size
+
+#lenTestData =lenTestData-lRemainder
 #lenTestData=lenTestData-1
+
 validationX=testX[:batch_size]
 validationY=testY[:batch_size]
 
-testX =testX[:lenTestData]
-testY =testY[:lenTestData]
+#testX =testX[:lenTestData]
+#testY =testY[:lenTestData]
 
 #must slice off training data to be divisible by batch_size
-lLenData =len(trainX)
-lRemainder =lLenData % batch_size
-lLenData =lLenData-lRemainder
+#lLenData =len(trainX)
+#lRemainder =lLenData % batch_size
+#lLenData =lLenData-lRemainder
 
-trainX =trainX[:lLenData]
-trainY=trainY[:lLenData]
+#trainX =trainX[:lLenData]
+#trainY=trainY[:lLenData]
+
+trainX,trainY =fnSliceOffDataPerBatchSize(trainX,trainY ,batch_size)
 
 
 
@@ -376,12 +404,12 @@ else:
                     model.reset_states()
                     print (i)
 			
-        else:
+        else:  
             model.fit(trainX, trainY, nb_epoch=850, #  callbacks=[ResetStatesCallback()], #shuffle=False,
                     batch_size=batch_size, verbose=2) #,validation_data=(validationX, validationY)) #validation_data=(testX, testY), verbose=2)
             print ('using linear on last layer, hard sigmoid and tanh on LSTMs')
             #num samples for trainX and testX must be divisible by batch_size!!!
-
+            #shuffling is only allowed with stateLESS network
         # make predictions
         trainPredict = model.predict(trainX, batch_size=batch_size)
 
@@ -418,19 +446,53 @@ print ('R2 score on Train Returns:' +str(r2_score(trainY,trainPredict)))
 
 print ('R2 score on Test Returns:' +str(r2_score(testY,testPredict)))
 
-#fig=plt.figure(figsize=(8,6))
-#plt.plot(trainY,label='Actual Train ')
-#plt.plot(trainPredict,label='Predicted Train ')
-#plt.show()
+def fnPrintPredVsActuals(pDfBenchmark, pPrediction,pActual, pStrHeader):
+    #pDfBenchmark - dataframe containing benchmark data
+    #pPrediction - np array of predicted data
+    #pActual - np array of actual data
 
-#np.savetxt("C:\\temp\\testY.csv", testY, delimiter=',')
-#np.savetxt("C:\\temp\\testX.csv", testX, delimiter=',')
+    pDfBenchmark['Predicted']=pPrediction.tolist()
+    pDfBenchmark['Actual']=pActual.tolist()
+    
+    print(pStrHeader)
 
-plt.plot(testY,label='Actual '+lstrStock)
-plt.plot(testPredict,label='*Predicted* '+lstrStock)
-legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
-plt.show()
+    display(pDfBenchmark)
+    #print(pStrHeader)
+    #print("Prediction","Actual")
 
+    #for p, a in zip(pPrediction,pActual):
+    #    print(str(p)+" " +str(a))
+
+def fnPlotChart(pBenchmark, pPredictions,pActual, pStrStock, pStrTitle):
+    #np.savetxt("C:\\temp\\testY.csv", testY, delimiter=',')
+    #np.savetxt("C:\\temp\\testX.csv", testX, delimiter=',')
+    lstrStock =pStrStock
+
+    # plot the benchmark
+    plt.plot_date(pBenchmark['Date'], pActual, 'b-',label='Actual '+lstrStock)
+    plt.plot_date(pBenchmark['Date'], pBenchmark['Adj Close'], 'r-',label='Benchmark'+lstrStock)
+    plt.plot_date(pBenchmark['Date'], pPredictions, 'g-',label='*Predicted* '+lstrStock)
+
+
+    plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=10))
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m-%d-%Y'))
+    plt.gcf().autofmt_xdate()
+
+    #plt.plot(testY,label='Actual '+lstrStock)
+    #plt.plot(testPredict,label='*Predicted* '+lstrStock)
+
+    plt.suptitle(pStrTitle,
+                    fontsize=11, fontweight='bold')
+
+    legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
+    plt.show()
+
+
+fnPrintPredVsActuals(testBMark,testPredict,testY,"Adjusted Closing Returns")
+
+fnPlotChart(testBMark, testPredict,testY, lstrStock,"Predictions On Test Data")
+
+fnPlotChart(testBMark, testPredict,testY, lstrStock,"Predictions On Training Data")
 
 
 if False:
