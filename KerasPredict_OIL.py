@@ -43,7 +43,7 @@ from IPython.display import display
 
 lstrPath ="C:\\Udacity\\NanoDegree\\Capstone Project\\MLTrading\\"
 #LOOKBACK window
-look_back =3 #LOOK back at 30 had worse fit than 20s
+look_back =15 #LOOK back at 30 had worse fit than 20s
 horizon =5
 lstrStock ='OIL'
 
@@ -57,10 +57,12 @@ def reportStationarity(pDfTimeSeries):
     #print (dfoutput)
     display(dfoutput)
 
-def fnGetStationaryTimeSeries(pDf):
+def fnGetStationaryTimeSeries(pDf,pLstCols=None):
     #return the data frame with differences of log of open, hi, low , close prices
     #this should make it better for time series analysis
     lstFlds =['Adj Close','Close','Open','High','Low']
+    if pLstCols !=None:
+        lstFlds=pLstCols
     for fld in lstFlds:
         #pDf[fld] =np.log( pDf[fld] )
         #pDf[fld] = np.log(pDf[fld]/pDf[fld].shift(periods=Nperiods))
@@ -86,14 +88,24 @@ def fnGetStockData(pStrFileName,nDaysReturnLookBack, look_back, horizon,pLstCols
 
     ndaysNatLog=nDaysReturnLookBack #40
 
-   # dataframe=fnGetNaturalLogPrices(dataframe,ndaysNatLog)
-    dataframe =fnGetStationaryTimeSeries(dataframe)
+	# dataframe=fnGetNaturalLogPrices(dataframe,ndaysNatLog)
+    dataframe,lstColsSR=fnComputeFeatures(dataframe,look_back, 3,horizon,22,4)
+    
+    dataframe =fnGetStationaryTimeSeries(dataframe)   
+    dataframe =dataframe[ pd.notnull(dataframe['Adj Close'])]
+    
 
-    dataframe =dataframe[ pd.notnull(dataframe['Adj Close'])] #pDf =pDf[ pd.notnull(pDf['CloseSlope'])]
+	#REMOVE FIRST ROWS WHICH contain NaN
+    dataframe =dataframe[ pd.notnull(dataframe['MACD'])] #pDf =pDf[ pd.notnull(pDf['CloseSlope'])]
 
     reportStationarity(dataframe['Adj Close'])
+    #reportStationarity(dataframe['Volume'])
+    #reportStationarity(dataframe['rollingStdev20'])
+    #reportStationarity(dataframe['CloseSlope'])
+    #reportStationarity(dataframe['MACD'])
+
     #fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookback=11,pSegments=4)
-    dataframe,lstColsSR=fnComputeFeatures(dataframe,look_back, 3,horizon,22,4)
+    #dataframe,lstColsSR=fnComputeFeatures(dataframe,look_back, 3,horizon,22,4)
 
     #lstCols =['Adj Close','rollingStdev20','rollingMax20','rollingMin20','OBV','upper_band','lower_band']
     #'RealBody','Color','BarType','UpperShadow','LowerShadow'
@@ -209,45 +221,46 @@ def fnGetModel(blnStateful=True):
     #model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
     #?adding drop out prior to input
     #model.add(Dropout(0.25,batch_input_shape=(batch_size, look_back, numFeatures)))
-    lDRRate =.225  #increased dr for OIL improves
-    nLayers =8  #less layers from 6 to 2 is worse R^2    
+    lDRRate =.525  #increased dr for OIL improves
+    nLayers =4  #less layers from 6 to 2 is worse R^2
+    #tried 16 layers and 1*numfeatures neurons but not enough volatility in forecast
     print ('dropout at ' + str(lDRRate) )
 
     #model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
     #model.add(Dropout(0.25,batch_input_shape=(batch_size, look_back, numFeatures)))
     
-    #model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+    #model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
    
     model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
 
     for i in range(nLayers):
         if i==(nLayers-1):
-            model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful))
+            model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful))
         else:
-            model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful,return_sequences=True))
+            model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful,return_sequences=True))
        
         model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
 
     if False:
-        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful,return_sequences=True))
+        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful,return_sequences=True))
        
         model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
         
-        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful,return_sequences=True))
+        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful,return_sequences=True))
        
         model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
        
-        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful,return_sequences=True))
+        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful,return_sequences=True))
      
 
         model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
         
-        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful,return_sequences=True))
+        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful,return_sequences=True))
      
         model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
 
 
-    #model.add(LSTM(numNeurons,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful)) #consume_less='cpu'
+    #model.add(LSTM(numNeurons,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=blnStateful)) #consume_less='cpu'
 
     #model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
         #REMOVING dropout severely hurts score/fit
@@ -257,11 +270,11 @@ def fnGetModel(blnStateful=True):
 
     print ('model ' +str(nLayers)+' layers ' + str(numNeurons) + ' neurons per layer, final activation is linear')
     # Compile model
-    learn_rate=0.000915 #reducing the learning rate improves the fit and r squared!!!
+    learn_rate=0.00315 #reducing the learning rate improves the fit and r squared!!!
 
     #momentum=0
     #optimizer = SGD(lr=learn_rate, momentum=momentum)
-    optimizer = RMSprop(lr=learn_rate, rho=0.9, epsilon=1e-08, decay=0.00001)
+    optimizer = RMSprop(lr=learn_rate, rho=0.9, epsilon=1e-08, decay=0)
     #optimizer = Adagrad(lr=learn_rate, epsilon=1e-08, decay=0.02)
     #Adam(lr=learn_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
     #adam R sq of -2
@@ -424,7 +437,7 @@ else:
 			
         else:
             #produces MEMORY ERROR after 992 epochs
-            model.fit(trainX, trainY, nb_epoch=350,shuffle=True, #   callbacks=[ResetStatesCallback()], #shuffle=False,
+            model.fit(trainX, trainY, nb_epoch=200,shuffle=True, #   callbacks=[ResetStatesCallback()], #shuffle=False,
                     batch_size=batch_size, verbose=2) #,validation_data=(validationX, validationY)) #validation_data=(testX, testY), verbose=2)
             print ('using linear on last layer, hard sigmoid and tanh on LSTMs')
             #num samples for trainX and testX must be divisible by batch_size!!!
