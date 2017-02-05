@@ -1,5 +1,7 @@
 #import os
 #print(os.path.expanduser('~'))
+
+#References used to help build this module:
 #http://machinelearningmastery.com/using-learning-rate-schedules-deep-learning-models-python-keras/
 #https://\.com/CanePunma/Stock_Price_Prediction_With_RNNs/blob/master/stock_prediction_keras_FINAL.ipynb
 #https://github.com/anujgupta82/DeepNets/blob/master/Online_Learning/Online_Learning_DeepNets.ipynb
@@ -16,11 +18,16 @@ from sklearn.ensemble import ExtraTreesRegressor
 #from scipy.stats import boxcox
 from fitSine import fnFitSine
 
-from keras.callbacks import Callback
+
+from sklearn.model_selection import GridSearchCV
+from keras.wrappers.scikit_learn import KerasRegressor
+
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import pandas as pd
 import math
+from keras.callbacks import Callback
 from keras.models import Sequential
 from keras.layers import Dense, Dropout,Activation
 from keras.layers import LSTM
@@ -45,11 +52,28 @@ from IPython.display import display
 #from modGetStockData import fnGetStockData 
 #from PowerForecast import run_network
 
+
+''' This is a workaround fix to Keras when grid searching'''
+from keras.wrappers.scikit_learn import BaseWrapper
+import copy
+
+def custom_get_params(self, **params):
+    res = copy.deepcopy(self.sk_params)
+    res.update({'build_fn': self.build_fn})
+    return res
+
+BaseWrapper.get_params = custom_get_params
+'''End workaround fix to Keras grid search '''
+
+
 lstrPath ="C:\\Udacity\\NanoDegree\\Capstone Project\\MLTrading\\"
 #LOOKBACK window
-look_back =8#LOOK back at 30 had worse fit than 20s
+look_back =10 #LOOK back at 30 had worse fit than 20s
 horizon =5
 lstrStock ='SPY'
+
+#set the random num gen seed for reproducability
+np.random.seed(7)
 
 
 print ('horizon ='+str(horizon)) 
@@ -62,6 +86,7 @@ def reportStationarity(pDfTimeSeries):
         dfoutput['Critical Value (%s)'%key] = value
     #print (dfoutput)
     display(dfoutput)
+    print ("")
 
 
 def fnGetStationaryTimeSeries(pDf,pLstCols=None):
@@ -73,10 +98,10 @@ def fnGetStationaryTimeSeries(pDf,pLstCols=None):
     for fld in lstFlds:
         #pDf[fld] =np.log( pDf[fld] )
         #pDf[fld] = np.log(pDf[fld]/pDf[fld].shift(periods=Nperiods))
-        #pDf[fld] = np.log(pDf[fld])
-        pDf[fld] = np.sqrt(pDf[fld])
+        pDf[fld] = np.log(pDf[fld])
+        #pDf[fld] = np.sqrt(pDf[fld])
         #pDf[fld]  ,_ =boxcox(pDf[fld])
-        print ("USING sqrt INSTEAD OF LOG FOR STATIONARITY")
+        #print ("USING sqrt INSTEAD OF LOG FOR STATIONARITY")
         #pDf['Natural Log'] = pDf['Close'].apply(lambda x: np.log(x))  
         pDf[fld] =pDf[fld] -pDf[fld].shift()
 
@@ -94,6 +119,17 @@ def fnComputeFeatureImportances(trainX,trainY,lstCols):
     for item in lstCols:
             print(item)
 
+def fnPrintPredVsActuals(pDfBenchmark, pPrediction,pActual, pStrHeader):
+    #pDfBenchmark - dataframe containing benchmark data
+    #pPrediction - np array of predicted data
+    #pActual - np array of actual data
+
+    pDfBenchmark['Predicted']=pPrediction.tolist()
+    pDfBenchmark['Actual']=pActual.tolist()
+    
+    print(pStrHeader)
+
+    display(pDfBenchmark)
 
 
 def fnGetStockData(pStrFileName,nDaysReturnLookBack, look_back, horizon,pLstCols,pRemoveAdjFromFeatures=True):
@@ -109,18 +145,20 @@ def fnGetStockData(pStrFileName,nDaysReturnLookBack, look_back, horizon,pLstCols
     dataframe.Date = pd.to_datetime(dataframe.Date) 
     dataframe.index =dataframe['Date']
 
+    originalDF =dataframe.copy(deep=True)
     ndaysNatLog=nDaysReturnLookBack #40
+
 
     dataframe =fnGetStationaryTimeSeries(dataframe)   
     dataframe =dataframe[ pd.notnull(dataframe['Adj Close'])]
-    print ('Converting to stationary BEFORE building features')
-
-    slopeLB =6
+    #print ('Converting to stationary AFTER building features')
+    
+    slopeLB =20
     dataframe,lstColsSR=fnComputeFeatures(dataframe,look_back, slopeLB,horizon,22,4)
+
+
     print ('slope lookback at ' + str(slopeLB))
 	# dataframe=fnGetNaturalLogPrices(dataframe,ndaysNatLog)
-
-
 
 	#REMOVE FIRST ROWS WHICH contain NaN
     dataframe =dataframe[ pd.notnull(dataframe['MACD'])] #
@@ -151,10 +189,13 @@ def fnGetStockData(pStrFileName,nDaysReturnLookBack, look_back, horizon,pLstCols
     targetSet =dataframe['Adj Close'].values
     targetSet =targetSet.astype('float64')
 
-
+	#create a naive benchmark, which is simply last known price before the prediction
+    benchmark=dataframe['Adj Close'][look_back-1: len(dataframe)-horizon]
+    benchmark['Date'] =benchmark.index
+    
     if pRemoveAdjFromFeatures:
-            lstCols.remove('Adj Close')
-            numFeatures=numFeatures-1
+        lstCols.remove('Adj Close')
+        numFeatures=numFeatures-1
     dataframe=dataframe[lstCols] #,'Volume','rollingMax20','rollingMin20']]
 
     dataset = dataframe.values
@@ -190,13 +231,15 @@ def fnGetStockData(pStrFileName,nDaysReturnLookBack, look_back, horizon,pLstCols
 
     trainX, trainY = create_dataset(train,trainTarget ,look_back,horizon)
 
+
+    #fnComputeFeatureImportances(trainX,trainY,lstCols)
+
     #testX, testY = create_dataset(test,testTarget, look_back,horizon)
     # reshape input to be [samples, time steps, features]
     trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], numFeatures))
     #testX = np.reshape(testX, (testX.shape[0], testX.shape[1], numFeatures))
 
-    
-    return trainX, trainY
+    return trainX, trainY,benchmark,originalDF
 
 
 class ResetStatesCallback(Callback):
@@ -209,6 +252,40 @@ class ResetStatesCallback(Callback):
 		#if self.counter % max_len == 0:
   #          self.model.reset_states()
   #      self.counter += 1
+
+def fnPlotChart(pBenchmark=None, pPredictions=None,pActual=None, pStrStock="", pStrTitle="", pBenchLabel=""):
+	#display chart of benchmark , predicted and actual stock data (returns, prices,etc..)
+	
+    #np.savetxt("C:\\temp\\testY.csv", testY, delimiter=',')
+    #np.savetxt("C:\\temp\\testX.csv", testX, delimiter=',')
+    lstrStock =pStrStock
+
+    # plot the benchmark
+    if pActual!=None:
+            plt.plot_date(pBenchmark['Date'], pActual, 'k-',label='Actual '+lstrStock)
+
+    benchLabel ='Benchmark '+lstrStock
+    if pBenchLabel!="":
+        benchLabel=pBenchLabel
+    
+    plt.plot_date(pBenchmark['Date'], pBenchmark['Adj Close'], 'r-',label=benchLabel)
+	
+    if pPredictions!=None:
+            plt.plot_date(pBenchmark['Date'], pPredictions, 'g-',label='*Predicted* '+lstrStock)
+
+
+    plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=25))
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m-%d-%Y'))
+    plt.gcf().autofmt_xdate()
+
+    #plt.plot(testY,label='Actual '+lstrStock)
+    #plt.plot(testPredict,label='*Predicted* '+lstrStock)
+
+    plt.suptitle(pStrTitle,
+                    fontsize=11, fontweight='bold')
+
+    legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
+    plt.show()
 
 def fnTrainModelForMap(model, x,y,pBatchSize):
 	model.fit(x, y,nb_epoch =1,  batch_size=pBatchSize, shuffle=False)
@@ -243,20 +320,26 @@ def step_decay(epoch):
 	#print ('using tanh decay')
 	return lrate
 
-def fnGetModelEKG(batch_size, look_back, numFeatures):
+#def fnGetModelMultiLayer(blnStateful,batch_size, look_back, numFeatures):
+def fnGetModelMultiLayer(neuronsL1,neuronsL2,neuronsL3):
     model = Sequential()
-    
+    blnStateful=False
     #layers={'hidden2': numFeatures*12, 'input': 1, 'hidden1': numFeatures*8, 'hidden3': numFeatures*4, 'output': 1}
-    layers={'hidden2': numFeatures*10, 'input': 1, 'hidden1': numFeatures*4, 'hidden3': numFeatures*4, 'output': 1}
+    #layers={'hidden2': numFeatures*18, 'input': 1, 'hidden1': numFeatures*4, 'hidden3': numFeatures*4, 'output': 1}
+    #layers={'hidden2': numFeatures*2, 'input': 1, 'hidden1': numFeatures*6, 'hidden3': numFeatures*6, 'output': 1}
+    layers={'hidden2': neuronsL2, 'input': 1, 'hidden1': neuronsL1, 'hidden3': neuronsL3, 'output': 1}
+    
     #layers = {'input': 1, 'hidden1': numFeatures, 'hidden2': 128, 'hidden3': 100, 'output': 1}
     #increASING hidden1 flattens!
+    #decreasing hidden3 amplifies volatility!
 
     print(layers)
     #keras.layers.recurrent.LSTM(output_dim, init='glorot_uniform',
     #inner_init='orthogonal', forget_bias_init='one', activation='tanh',
     #inner_activation='hard_sigmoid', W_regularizer=None, U_regularizer=None, b_regularizer=None, dropout_W=0.0, dropout_U=0.0)
-    ldropout =.40
-
+    ldropout =.12075
+    print ('dropout at: ' + str(ldropout))
+    #high ldropout flattens it out
     #Available activations
 
     #softmax: Softmax applied across inputs last dimension. Expects shape either (nb_samples, nb_timesteps, nb_dims) or  (nb_samples, nb_dims).
@@ -277,20 +360,24 @@ def fnGetModelEKG(batch_size, look_back, numFeatures):
     #sigmoid in activation produces flat line
     #model.add(Dropout(ldropout))
     #model.add(Dropout(ldropout,batch_input_shape=(batch_size, look_back, numFeatures)))
+    #cannot use inner_activation =relu with stateful=True, loss =Nan
+    #with hard sigmoid got a -.4 R^2
+    #with relue got -4.0 R^2
     
-    model.add(LSTM( activation='tanh', inner_activation='relu',
+    model.add(LSTM( activation='tanh', inner_activation='hard_sigmoid',stateful=blnStateful, #activation='tanh',
             batch_input_shape=(batch_size, look_back, numFeatures),
             output_dim=layers['hidden1'],
             return_sequences=True))
     model.add(Dropout(ldropout))
 
-    model.add(LSTM( activation='tanh', inner_activation='relu',
+
+    model.add(LSTM(activation='tanh', inner_activation='hard_sigmoid',stateful=blnStateful,
             output_dim=layers['hidden2'],
             batch_input_shape=(batch_size, look_back, numFeatures),
             return_sequences=True))
     model.add(Dropout(ldropout))
 
-    model.add(LSTM( activation='tanh', inner_activation='relu',
+    model.add(LSTM( activation='tanh', inner_activation='hard_sigmoid',stateful=blnStateful,
             output_dim=layers['hidden3'],
             batch_input_shape=(batch_size, look_back, numFeatures),
             return_sequences=False))
@@ -298,21 +385,45 @@ def fnGetModelEKG(batch_size, look_back, numFeatures):
 
     model.add(Dense(
             output_dim=layers['output']))
+
+    #model.add(Dense(layers['hidden3'], activation='relu'))
+    #model.add(Dense(output_dim=layers['output'], activation='linear'))
+    
     model.add(Activation("linear"))
+    learn_rate=0.0005242175
+    #momentum=0
+    #optimizer = SGD(lr=learn_rate, momentum=momentum)
+    optimizer = RMSprop(lr=learn_rate, rho=0.9, epsilon=1e-10, decay=0.000001)
+    #optimizer = Adagrad(lr=learn_rate, epsilon=1e-08, decay=0.00)
+    #Adam(lr=learn_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+    #adam R sq of -2
+    model.compile(loss='mean_squared_error',optimizer=optimizer) # optimizer='adam')
     return model
     
+def fnGridSearchModel(trainX, trainY):
+    #Reference:http://machinelearningmastery.com/grid-search-hyperparameters-deep-learning-models-python-keras/
+    model = KerasRegressor(build_fn=fnGetModelMultiLayer, nb_epoch=100, batch_size=batch_size, verbose=2)
+    
+    # define the grid search parameters
+    neuronsL1 = [numFeatures, 20, 25, 30,35,40,45,50,55,60,65,70,75,80,85,90,95,100]
+    neuronsL2 = [numFeatures, 20, 25, 30,35,40,45,50,55,60,65,70,75,80,85,90,95,100]
+    neuronsL3 = [numFeatures, 20, 25, 30,35,40,45,50,55,60,65,70,75,80,85,90,95,100]
+
+
+    
+    param_grid = dict(neuronsL1=neuronsL1,neuronsL2=neuronsL2,neuronsL3=neuronsL3 )
+    grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=1)
+    grid_result = grid.fit(trainX, trainY)
+    # summarize results
+    print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
+    #means = grid_result.cv_results_['mean_test_score']
+    #stds = grid_result.cv_results_['std_test_score']
+    #params = grid_result.cv_results_['params']
 
 def fnGetModel(blnStateful=True, pLook_Back=7):
     model = Sequential()
     #numNeurons =100 # try 4*look_back  #increasing neuron sappears to increase volatility too much ?
     numNeurons=2*numFeatures #4*look_back *numFeatures
-    #numNeurons=110
-    #numNeurons=numNeurons+8
-    #try softsign activation, try adagrad too
-    #model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,`sume_less='cpu'))
-    #model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
-    #model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
-    #?adding drop out prior to input
     #model.add(Dropout(0.25,batch_input_shape=(batch_size, look_back, numFeatures)))
     lDRRate =.2555  #increased dr for OIL improves
     nLayers =3 #less layers from 6 to 2 is worse R^2
@@ -372,22 +483,37 @@ def fnGetModel(blnStateful=True, pLook_Back=7):
     model.add(Dense(1)) #,activation ='relu' -> gives WORSE results.
     model.add(Activation("linear"))
 
-    print ('using EKG model')
-    model =fnGetModelEKG(batch_size, look_back, numFeatures)
+    print ('using fnGetModelMultiLayer  model')
+    model =fnGetModelMultiLayer(blnStateful,batch_size, look_back, numFeatures)
                   
     print ('model ' +str(nLayers)+' layers ' + str(numNeurons) + ' neurons per layer, final activation is linear')
     # Compile model
     #learn_rate=0.00006215 #reducing the learning rate improves the fit and r squared!!!
-    learn_rate=0.000242175
+    #learn_rate=0.00004242175
+    learn_rate=0.0005242175
     #momentum=0
     #optimizer = SGD(lr=learn_rate, momentum=momentum)
-    optimizer = RMSprop(lr=learn_rate, rho=0.9, epsilon=1e-10, decay=0.00001)
+    optimizer = RMSprop(lr=learn_rate, rho=0.9, epsilon=1e-10, decay=0.000001)
     #optimizer = Adagrad(lr=learn_rate, epsilon=1e-08, decay=0.00)
     #Adam(lr=learn_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
     #adam R sq of -2
     model.compile(loss='mean_squared_error',optimizer=optimizer) # optimizer='adam')
 
     return model
+
+def fnSliceOffDataPerBatchSize(pFeatures=None,pTarget=None, pBatch_Size=1):
+    #must slice off data to match batch_size per Keras requirement when training by batch
+    #must slice off training data to be divisible by batch_size
+    lLenData =len(pFeatures)
+    lRemainder =lLenData % pBatch_Size
+    lLenData =lLenData-lRemainder
+
+    pFeatures =pFeatures[:lLenData]
+    
+    if pTarget !=None:
+        pTarget=pTarget[:lLenData]
+
+    return pFeatures, pTarget
 
 # convert an array of values into a dataset matrix
 def create_dataset(dataset, targetSet=None, look_back=1,horizon=1, positionY=0):
@@ -407,7 +533,7 @@ def create_dataset(dataset, targetSet=None, look_back=1,horizon=1, positionY=0):
 		#dataX =dataX[:-horizon]
         return np.array(dataX), np.array(dataY)
 # fix random seed for reproducibility
-np.random.seed(7)
+
 # load the dataset
 #dataframe = pd.read_csv(lstrPath+'international-airline-passengers.csv', usecols=[1], engine='python', skipfooter=3)
 #dataframe = pd.read_csv(lstrPath+'SPY with returns.csv',  engine='python', skipfooter=3)
@@ -416,121 +542,56 @@ np.random.seed(7)
 #REMOVED MACD as this reduces amount of data (needs 26 days prior)
 #'RealBody','BarType',#'upper_band','lower_band',
            #'UpperShadow','LowerShadow','Color',
-lstCols =['2DayNetPriceChange','CloseSlope','Adj Close','Volume', 'rollingMean20','EMV','ForceIndex',
-	'MACD',  'High','Low','rollingStdev20','rollingMax20','rollingMin20','StdDevSlope','VolumeSlope',
-	'DiffercenceBtwnAvgVol',
-	'UpDownVolumeChange',
-	'SineFreq',
-	'SineAmp',
-	'SinePhase',
-	'SineOffset','RealBody','BarType', #,'upper_band','lower_band',
-           'UpperShadow','LowerShadow','Color'
-	]
+#lstCols =['2DayNetPriceChange','CloseSlope','Adj Close','Volume', 'rollingMean20','EMV','ForceIndex',
+#	'MACD',  'High','Low','rollingStdev20','rollingMax20','rollingMin20','StdDevSlope','VolumeSlope',
+#	'DiffercenceBtwnAvgVol',
+#	'UpDownVolumeChange',
+#	'SineFreq',
+#	'SineAmp',
+#	'SinePhase',
+#	'SineOffset','RealBody','BarType', #,'upper_band','lower_band',
+#           'UpperShadow','LowerShadow','Color'
+#	]
 
 lstCols =['VolumeSlope',
 'MACD',
 'EMV',
-'rollingMean20',
+'rollingMean20','rollingStdev20',
 'RealBody',
 'SinePhase',
 'Volume',
-'DiffercenceBtwnAvgVol',
-'StdDevSlope',
+'SineAmp',
+#'DiffercenceBtwnAvgVol',
+#'StdDevSlope', 
 'ForceIndex',
 'LowerShadow',
 'UpperShadow',
 'SineFreq',
-'SineOffset','Adj Close'
+'SineOffset','Adj Close',
+          'OBV'
 ]
 
-print ('need to MERGE code across 2 laptops!')
 
-blnRemoveAdjClose =True
+blnRemoveAdjClose =False
 numFeatures =len(lstCols)
 
 if blnRemoveAdjClose:
 	numFeatures=numFeatures-1
 
-trainX, trainY = fnGetStockData(lstrPath+lstrStock+'dfQuotes2015.csv',40, look_back, horizon,lstCols,blnRemoveAdjClose)
-testX, testY = fnGetStockData(lstrPath+lstrStock+'dfQuotesTest2015.csv',40, look_back, horizon,lstCols,blnRemoveAdjClose)
+trainX, trainY, trainBMark, dfStockTrain  = fnGetStockData(lstrPath+lstrStock+'dfQuotes2015.csv',40, look_back, horizon,lstCols,blnRemoveAdjClose)
+testX, testY,testBMark,dfStockTest   = fnGetStockData(lstrPath+lstrStock+'dfQuotesTest2015.csv',40, look_back, horizon,lstCols,blnRemoveAdjClose)
 
-if False:
-    #moved this code into fnGetStockData above
-    dataframe = pd.read_csv(lstrPath+'QQQdfQuotes.csv',  engine='python')
-
-    print('TRUNCATING DATAFRAME TO SPEED UP')
-    ##############################################
-    ##############################################
-    dataframe=dataframe[:620] #248
-    dataframe.Date = pd.to_datetime(dataframe.Date) 
-    dataframe.index =dataframe['Date']
-
-    ndaysNatLog=40
-
-    dataframe=fnGetNaturalLogPrices(dataframe,ndaysNatLog)
-    dataframe =dataframe[ pd.notnull(dataframe['Adj Close'])] #pDf =pDf[ pd.notnull(pDf['CloseSlope'])]
-    #fnComputeFeatures(pDf,pNumDaysLookBack,pSlopeLookback, pDaysAhead=8,pSRLookback=11,pSegments=4)
-    dataframe,lstColsSR=fnComputeFeatures(dataframe,look_back, 5,horizon,22,4)
-
-    #lstCols =['Adj Close','rollingStdev20','rollingMax20','rollingMin20','OBV','upper_band','lower_band']
-    #'RealBody','Color','BarType','UpperShadow','LowerShadow'
-    lstCols =['2DayNetPriceChange','CloseSlope','rollingMean20','Adj Close','MACD','Volume',#'upper_band','lower_band',
-             'High','Low','rollingStdev20','rollingMax20','rollingMin20']#,'ZigZag']#,'fastk','fulld','fullk'] #,'upAroon','downAroon']#,'fastk','fulld','fullk'] # ['S1','S2','S3','R1','R2','R3']
-    #lstCols =['Adj Close','CloseSlope', 'rollingMean20','rollingStdev20','rollingMax20','rollingMin20']
-    #lstCols =['Adj Close'], .45 R sq.
-    print ('running with slope lookback =4, look_back =' + str(look_back)+ ', natlog =' +str(ndaysNatLog) +' days ahead, 2 total LSTMS')
-
-    #MACD adds value to R^2, ForceIndex does NOT! Volumeslope does not
-    #lstCols =['Adj Close','CloseSlope','rollingMax20','rollingMin20','HighLowRange','rollingStdev20','rollingMean20'] -neg. r^2
-    #lstCols =['Adj Close','rollingStdev20','RSI','MACD','DiffercenceBtwnAvgVol','HighLowRange','rollingMean20','Volume']# .01 rsq
-    #lstCols =['Adj Close'] #.19 #,'rollingStdev20','RSI','MACD','DiffercenceBtwnAvgVol']
-    numFeatures =len(lstCols)	
-    print (lstCols)
-    dataframe=dataframe[lstCols] #,'Volume','rollingMax20','rollingMin20']]
-
-    targetSet =dataframe['Adj Close'].values
-    targetSet =targetSet.astype('float32')
-
-    dataset = dataframe.values
-    dataset = dataset.astype('float32')
-
-    # normalize the dataset
-    if True:
-	    #print ('temporarily not scaling so we can debug')
-	    #DO NOT scale the target, only features
-	    scaler = MinMaxScaler(feature_range=(0, 1))
-	    #Targetscaler = MinMaxScaler(feature_range=(0, 1))
-	
-	    dataset = scaler.fit_transform(dataset)
-	
-	    #targetSet =Targetscaler.fit_transform(targetSet)
-
-    else:
-	    print ('temporarily not scaling so we can debug')
-
-
-    # split into train and test sets
-    train_size = int(len(dataset) * 0.65)
-
-    test_size = len(dataset) - train_size
-    train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
-
-    trainTarget, testTarget =targetSet[0:train_size], targetSet[train_size:len(targetSet)]
-    # reshape into X=t and Y=t+1
-
-    trainX, trainY = create_dataset(train,trainTarget ,look_back,horizon)	
-    testX, testY = create_dataset(test,testTarget, look_back,horizon)
-    # reshape input to be [samples, time steps, features]
-    trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], numFeatures))
-    testX = np.reshape(testX, (testX.shape[0], testX.shape[1], numFeatures))
-
-
+if True:
+    fnPlotChart(pBenchmark =dfStockTrain,pStrStock=lstrStock,pStrTitle="Training Data: " + lstrStock +" Historical Prices",pBenchLabel=lstrStock+" Adjusted Closing Price")
+    fnPlotChart(pBenchmark =dfStockTest,pStrStock=lstrStock,pStrTitle="TESTING Data: " +lstrStock +" Historical Prices",pBenchLabel=lstrStock+" Adjusted Closing Price")
 # create and fit the LSTM network
-batch_size = look_back#*5 #1 tried increasing batch, worse fit for batch_size=1
+batch_size = look_back #*2#*5 #1 tried increasing batch, worse fit for batch_size=1
 
 print('batch_size ='+ str(batch_size))
 blnLoadModel =False
 #run_network(X_train=trainX,y_train =trainY,X_test =testX,y_test =testY)
+
+testBMark,t =fnSliceOffDataPerBatchSize(testBMark,None ,batch_size)
 
 lenTestData =len(testX)
 lRemainder =lenTestData % batch_size
@@ -556,7 +617,9 @@ trainY=trainY[:lLenData]
 if blnLoadModel:
 	model = load_model(lstrPath+'KerasStockModel.h5')
 else:
-        model=fnGetModel(False, look_back)
+
+        model =fnGridSearchModel(trainX, trainY)
+        #model=fnGetModel(False, look_back)
 	
 	#model=fnTrainViaCallback(model,trainX,trainY,batch_size)
 	
@@ -570,7 +633,7 @@ else:
 
         if False:
             
-            for i in range(320): #10 ITERATIONs is best thus far
+            for i in range(350): #10 ITERATIONs is best thus far
                     history=model.fit(trainX, trainY, nb_epoch=1, batch_size=batch_size, verbose=2, shuffle=False)
                     #history.history['loss']
                     
@@ -579,7 +642,7 @@ else:
 			
         else:
             #produces MEMORY ERROR after 992 epochs
-            model.fit(trainX, trainY, nb_epoch=500,shuffle=True, #   callbacks=[ResetStatesCallback()], #shuffle=False,
+            model.fit(trainX, trainY, nb_epoch=200,shuffle=True, #   callbacks=[ResetStatesCallback()], #shuffle=False,
                     batch_size=batch_size, verbose=2) #,validation_data=(validationX, validationY)) #validation_data=(testX, testY), verbose=2)
             print ('using linear on last layer, hard tanh and tanh on LSTMs')
             #num samples for trainX and testX must be divisible by batch_size!!!
@@ -594,10 +657,6 @@ if False:
 
 
 testPredict = model.predict(testX, batch_size=batch_size)
-
-
-
-
 
 # invert predictions
 if False:
@@ -624,6 +683,8 @@ print ('R2 score on Train Returns:' +str(r2_score(trainY,trainPredict)))
 
 print ('R2 score on Test Returns:' +str(r2_score(testY,testPredict)))
 
+print ('R2 score on Benchmark Returns:' +str(r2_score(testY,testBMark)))
+
 #fig=plt.figure(figsize=(8,6))
 #plt.plot(trainY,label='Actual Train ')
 #plt.plot(trainPredict,label='Predicted Train ')
@@ -632,8 +693,9 @@ print ('R2 score on Test Returns:' +str(r2_score(testY,testPredict)))
 #np.savetxt("C:\\temp\\testY.csv", testY, delimiter=',')
 #np.savetxt("C:\\temp\\testX.csv", testX, delimiter=',')
 
-plt.plot(testY,label='Actual '+lstrStock)
-plt.plot(testPredict,label='*Predicted* '+lstrStock)
+plt.plot(testY, 'b-',label='Actual '+lstrStock)
+plt.plot(testPredict, 'g-', label='*Predicted* '+lstrStock)
+
 legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
 plt.show()
 
@@ -641,8 +703,15 @@ plt.plot(trainY,label='Train Actual '+lstrStock)
 plt.plot(trainPredict,label='*Train Predicted* '+lstrStock)
 legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
 plt.show()
+plt.clf()
 
+if False:
+	fnPrintPredVsActuals(testBMark,testPredict,testY,"Adjusted Closing Returns")
 
+	fnPlotChart(testBMark, testPredict,testY, lstrStock,"Predictions On Test Data")
+	plt.clf()
+	fnPlotChart(trainBMark, trainPredict,trainY, lstrStock,"Predictions On Training Data")
+	plt.clf()
 
 if False:
 	# shift train predictions for plotting

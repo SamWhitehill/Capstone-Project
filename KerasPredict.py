@@ -1,4 +1,4 @@
-#import os
+    #import os
 #print(os.path.expanduser('~'))
 #http://machinelearningmastery.com/using-learning-rate-schedules-deep-learning-models-python-keras/
 #https://\.com/CanePunma/Stock_Price_Prediction_With_RNNs/blob/master/stock_prediction_keras_FINAL.ipynb
@@ -9,8 +9,6 @@
 #http://www.jakob-aungiers.com/articles/a/LSTM-Neural-Network-for-Time-Series-Prediction
 #cite: http://machinelearningmastery.com/time-series-prediction-lstm-recurrent-neural-networks-python-keras/
 #https://github.com/FreddieWitherden/ta/blob/master/ta.py
-
-from IPython.display import display
 
 from keras.callbacks import Callback
 import numpy as np
@@ -121,10 +119,7 @@ def fnGetStockData(pStrFileName,nDaysReturnLookBack, look_back, horizon,pLstCols
     # reshape input to be [samples, time steps, features]
     trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], numFeatures))
     #testX = np.reshape(testX, (testX.shape[0], testX.shape[1], numFeatures))
-
-    #return naive benchmark which is just last known value of stock return
-    benchmark = dataframe[['Adj Close']][look_back -1:len(dataframe)-horizon]
-    benchmark['Date'] =benchmark.index
+    benchmark=dataframe['Adj Close'][look_back-1: len(dataframe)-horizon]
     return trainX, trainY, benchmark
 
 
@@ -172,21 +167,6 @@ def step_decay(epoch):
 	#print ('using sigmoid decay')
 	return lrate
 
-def fnSliceOffDataPerBatchSize(pFeatures=None,pTarget=None, pBatch_Size=1):
-    #must slice off data to match batch_size per Keras requirement when training by batch
-    #must slice off training data to be divisible by batch_size
-    lLenData =len(pFeatures)
-    lRemainder =lLenData % pBatch_Size
-    lLenData =lLenData-lRemainder
-
-    pFeatures =pFeatures[:lLenData]
-    
-    if pTarget !=None:
-        pTarget=pTarget[:lLenData]
-
-    return pFeatures, pTarget
-
-
 def fnGetModel(blnStateful=True):
     model = Sequential()
     #numNeurons =100 # try 4*look_back  #increasing neuron sappears to increase volatility too much ?
@@ -198,43 +178,51 @@ def fnGetModel(blnStateful=True):
     #model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
     #model.add(LSTM(numNeurons , batch_input_shape=(batch_size, look_back, numFeatures),unroll=True, stateful=True,return_sequences=True,consume_less='cpu'))
     #?adding drop out prior to input
-    #model.add(Dropout(0.25,batch_input_shape=(batch_size, look_back, numFeatures)))	
+    #model.add(Dropout(0.25,batch_input_shape=(batch_size, look_back, numFeatures)))
+    lDRRate =.25
     print ('dropout at 0.25' )
 
-    #model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
-    model.add(Dropout(0.35,batch_input_shape=(batch_size, look_back, numFeatures)))
+    #model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+    #model.add(Dropout(0.25,batch_input_shape=(batch_size, look_back, numFeatures)))
     
-    model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+    #model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
    
-    model.add(Dropout(0.35,batch_input_shape=(batch_size, look_back, numFeatures)))
+    model.add(Dropout(.3,batch_input_shape=(batch_size, look_back, numFeatures)))
     
-    model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+    model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
    
-    model.add(Dropout(0.35,batch_input_shape=(batch_size, look_back, numFeatures)))
-    
-    model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
-   
-    model.add(Dropout(0.35,batch_input_shape=(batch_size, look_back, numFeatures)))
-   
-    model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
- 
+    model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
 
-    model.add(Dropout(0.35,batch_input_shape=(batch_size, look_back, numFeatures)))
-    
-    model.add(LSTM(numNeurons ,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
- 
-    model.add(Dropout(0.45,batch_input_shape=(batch_size, look_back, numFeatures)))
+    if True:
+        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+       
+        model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
+        
+        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+       
+        model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
+       
+        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+     
 
-    model.add(LSTM(numNeurons,activation='tanh',inner_activation='hard_sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful)) #consume_less='cpu'
+        model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
+        
+        model.add(LSTM(numNeurons ,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful,return_sequences=True))
+     
+        model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
 
-    model.add(Dropout(0.25,batch_input_shape=(batch_size, look_back, numFeatures)))
-    #REMOVING dropout severely hurts score/fit
+
+    model.add(LSTM(numNeurons,activation='tanh',inner_activation='sigmoid', batch_input_shape=(batch_size, look_back, numFeatures),unroll=True,consume_less='cpu', stateful=blnStateful)) #consume_less='cpu'
+
+    model.add(Dropout(lDRRate,batch_input_shape=(batch_size, look_back, numFeatures)))
+        #REMOVING dropout severely hurts score/fit
+
     model.add(Dense(1)) #,activation ='relu' -> gives WORSE results.
     model.add(Activation("linear"))
 
     print ('model 2 layers ' + str(numNeurons) + ' neurons per layer, final activation is linear')
     # Compile model
-    learn_rate=0.0000017 #reducing the learning rate improves the fit and r squared!!!
+    learn_rate=0.0000012 #reducing the learning rate improves the fit and r squared!!!
 
     #momentum=0
     #optimizer = SGD(lr=learn_rate, momentum=momentum)
@@ -270,11 +258,11 @@ np.random.seed(7)
 #dataframe = pd.read_csv(lstrPath+'SPY with returns.csv',  engine='python', skipfooter=3)
 #dataframe = pd.read_csv(lstrPath+'SPY_train.csv',  engine='python')
 
-lstCols =['2DayNetPriceChange','CloseSlope','rollingMean20','Adj Close','MACD','Volume',#'upper_band','lower_band',
+lstCols =['2DayNetPriceChange','CloseSlope','rollingMean20','Adj Close','Volume',#'upper_band','lower_band',
              'High','Low','rollingStdev20','rollingMax20','rollingMin20']
 numFeatures =len(lstCols)
-trainX, trainY, trainBMark = fnGetStockData(lstrPath+lstrStock+'dfQuotes2008.csv',40, look_back, horizon,lstCols)
-testX, testY, testBMark = fnGetStockData(lstrPath+lstrStock+'dfQuotesTest2008.csv',40, look_back, horizon,lstCols)
+trainX, trainY, trainBMark = fnGetStockData(lstrPath+lstrStock+'dfQuotes2015.csv',40, look_back, horizon,lstCols)
+testX, testY, testBMark = fnGetStockData(lstrPath+lstrStock+'dfQuotesTest2015.csv',40, look_back, horizon,lstCols)
 
 if False:
     #moved this code into fnGetStockData above
@@ -353,30 +341,24 @@ batch_size = look_back*2 #*5 #1 tried increasing batch, worse fit for batch_size
 blnLoadModel =False
 #run_network(X_train=trainX,y_train =trainY,X_test =testX,y_test =testY)
 
-testX,testY =fnSliceOffDataPerBatchSize(testX,testY ,batch_size)
+lenTestData =len(testX)
+lRemainder =lenTestData % batch_size
 
-testBMark,t =fnSliceOffDataPerBatchSize(testBMark,None ,batch_size)
-#lenTestData =len(testX)
-#lRemainder =lenTestData % batch_size
-
-#lenTestData =lenTestData-lRemainder
+lenTestData =lenTestData-lRemainder
 #lenTestData=lenTestData-1
-
 validationX=testX[:batch_size]
 validationY=testY[:batch_size]
 
-#testX =testX[:lenTestData]
-#testY =testY[:lenTestData]
+testX =testX[:lenTestData]
+testY =testY[:lenTestData]
 
 #must slice off training data to be divisible by batch_size
-#lLenData =len(trainX)
-#lRemainder =lLenData % batch_size
-#lLenData =lLenData-lRemainder
+lLenData =len(trainX)
+lRemainder =lLenData % batch_size
+lLenData =lLenData-lRemainder
 
-#trainX =trainX[:lLenData]
-#trainY=trainY[:lLenData]
-
-trainX,trainY =fnSliceOffDataPerBatchSize(trainX,trainY ,batch_size)
+trainX =trainX[:lLenData]
+trainY=trainY[:lLenData]
 
 
 
@@ -404,12 +386,12 @@ else:
                     model.reset_states()
                     print (i)
 			
-        else:  
-            model.fit(trainX, trainY, nb_epoch=850, #  callbacks=[ResetStatesCallback()], #shuffle=False,
+        else:
+            model.fit(trainX, trainY, nb_epoch=1150, #  callbacks=[ResetStatesCallback()], #shuffle=False,
                     batch_size=batch_size, verbose=2) #,validation_data=(validationX, validationY)) #validation_data=(testX, testY), verbose=2)
             print ('using linear on last layer, hard sigmoid and tanh on LSTMs')
             #num samples for trainX and testX must be divisible by batch_size!!!
-            #shuffling is only allowed with stateLESS network
+
         # make predictions
         trainPredict = model.predict(trainX, batch_size=batch_size)
 
@@ -420,6 +402,8 @@ model.reset_states()
 
 testPredict = model.predict(testX, batch_size=batch_size)
 
+
+#def fnGetBenchmarkPrediction
 
 # invert predictions
 if False:
@@ -446,53 +430,29 @@ print ('R2 score on Train Returns:' +str(r2_score(trainY,trainPredict)))
 
 print ('R2 score on Test Returns:' +str(r2_score(testY,testPredict)))
 
-def fnPrintPredVsActuals(pDfBenchmark, pPrediction,pActual, pStrHeader):
-    #pDfBenchmark - dataframe containing benchmark data
-    #pPrediction - np array of predicted data
-    #pActual - np array of actual data
+#fig=plt.figure(figsize=(8,6))
+#plt.plot(trainY,label='Actual Train ')
+#plt.plot(trainPredict,label='Predicted Train ')
+#plt.show()
 
-    pDfBenchmark['Predicted']=pPrediction.tolist()
-    pDfBenchmark['Actual']=pActual.tolist()
-    
-    print(pStrHeader)
-
-    display(pDfBenchmark)
-    #print(pStrHeader)
-    #print("Prediction","Actual")
-
-    #for p, a in zip(pPrediction,pActual):
-    #    print(str(p)+" " +str(a))
-
-def fnPlotChart(pBenchmark, pPredictions,pActual, pStrStock, pStrTitle):
-    #np.savetxt("C:\\temp\\testY.csv", testY, delimiter=',')
-    #np.savetxt("C:\\temp\\testX.csv", testX, delimiter=',')
-    lstrStock =pStrStock
-
-    # plot the benchmark
-    plt.plot_date(pBenchmark['Date'], pActual, 'b-',label='Actual '+lstrStock)
-    plt.plot_date(pBenchmark['Date'], pBenchmark['Adj Close'], 'r-',label='Benchmark'+lstrStock)
-    plt.plot_date(pBenchmark['Date'], pPredictions, 'g-',label='*Predicted* '+lstrStock)
+#np.savetxt("C:\\temp\\testY.csv", testY, delimiter=',')
+#np.savetxt("C:\\temp\\testX.csv", testX, delimiter=',')
+plt.plot_date(pDataFrame['Date'], y_test_returns, 'b-',label='Actual ' + lTicker)
 
 
-    plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=10))
-    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m-%d-%Y'))
-    plt.gcf().autofmt_xdate()
 
-    #plt.plot(testY,label='Actual '+lstrStock)
-    #plt.plot(testPredict,label='*Predicted* '+lstrStock)
+plt.plot(testY,label='Actual '+lstrStock)
+plt.plot(testPredict,label='*Predicted* '+lstrStock)
+plt.plot(testBMark,label='Benchmark Naive '+lstrStock)
 
-    plt.suptitle(pStrTitle,
-                    fontsize=11, fontweight='bold')
+plt.gca().set_yticklabels(['{:.0f}%'.format(x*100) for x in plt.gca().get_yticks()]) 
+plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=33))
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m-%d-%Y'))
+plt.gcf().autofmt_xdate()
 
-    legend = plt.legend(loc='upper left', shadow=True, fontsize='x-large')
-    plt.show()
+legend = plt.legend(loc='lower right', shadow=True, fontsize='x-large')
+plt.show()
 
-
-fnPrintPredVsActuals(testBMark,testPredict,testY,"Adjusted Closing Returns")
-
-fnPlotChart(testBMark, testPredict,testY, lstrStock,"Predictions On Test Data")
-
-fnPlotChart(testBMark, testPredict,testY, lstrStock,"Predictions On Training Data")
 
 
 if False:
@@ -509,6 +469,10 @@ if False:
 	testPredictPlot[len(trainPredict)+(look_back*2)+(1+horizon-3):len(dataset)-(1+horizon+1), :] = testPredict
 	# plot baseline and predictions
 	plt.plot(scaler.inverse_transform(dataset))
+	
+	#plt.plot_date(pDataFrame['Date'], y_test_returns, 'b-',label='Actual ' + lTicker)
+
 	plt.plot(trainPredictPlot)
 	plt.plot(testPredictPlot)
+
 	plt.show()
