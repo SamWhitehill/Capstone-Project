@@ -921,4 +921,5 @@ def fnMain(pSymbol="", pStartDateTrain=None, pEndDateTrain=None, pStartDateTest=
 if __name__=='__main__':
 	#fnMain()
     #fnRunSPY2015()
-    fnRunSPY2008()
+    #fnRunSPY2008()
+    fnRunSPY2000()
