@@ -7,8 +7,8 @@
 
 ####keras
 ####Theano*
-####numpy
-####scipy
+####Numpy
+####Scipy
 ####pandas
 ####matplotlib
 ####sklearn
@@ -65,28 +65,28 @@
 ####fnRunVXX
 ####fnRunQQQ
 
-####For example: 
+###For example: 
 
-####def fnRunQQQ(pBlnGridSearch =False,pLook_Back=10, pHorizon=1):
-####    '''Run the RNN predictions on the QQQ ETF using dates below
-####    Parm: pBlnGridSearch -true if we perform grid searching, false if not
-####    pLook_Back -number of days to look back within the model
-####    pHorizon -days ahead to forecast
-####    '''
-####    #global lstrStock
-####    global learn_rate
-####    lStartDateTrain=datetime.date(1999, 3, 10)
-####    lEndDateTrain=datetime.date(2000, 1  , 31)
-####
-####    lStartDateTest=datetime.date(2000, 2, 1)
-####    lEndDateTest=datetime.date(2000, 7  , 31)
+#####def fnRunQQQ(pBlnGridSearch =False,pLook_Back=10, pHorizon=1):
+#####    '''Run the RNN predictions on the QQQ ETF using dates below
+#####    Parm: pBlnGridSearch -true if we perform grid searching, false if not
+#####    pLook_Back -number of days to look back within the model
+#####    pHorizon -days ahead to forecast
+#####    '''
+#####    #global lstrStock
+#####    global learn_rate
+#####    lStartDateTrain=datetime.date(1999, 3, 10)
+#####    lEndDateTrain=datetime.date(2000, 1  , 31)
+#####
+#####    lStartDateTest=datetime.date(2000, 2, 1)
+#####    lEndDateTest=datetime.date(2000, 7  , 31)
 
-####    lstrStock="QQQ"
+#####    lstrStock="QQQ"
 
-####    learn_rate=0.0008  #TO DO CHANGE THIS VALUE
+#####    learn_rate=0.0008  #TO DO CHANGE THIS VALUE
     
     
-####    fnMain(lstrStock,lStartDateTrain,lEndDateTrain, lStartDateTest,  lEndDateTest,None,pBlnGridSearch,\
-####           pLearnRate=learn_rate, pDropout=.1, pLayers=1, pNeuronMultiplier=1,\
-####           pLook_Back=pLook_Back, pHorizon=pHorizon,pBatchSize =8\ #TO DO CHANGE THIS VALUE
-#### 8, pEpochs=500)
+#####    fnMain(lstrStock,lStartDateTrain,lEndDateTrain, lStartDateTest,  lEndDateTest,None,pBlnGridSearch,\
+#####           pLearnRate=learn_rate, pDropout=.1, pLayers=1, pNeuronMultiplier=1,\
+#####           pLook_Back=pLook_Back, pHorizon=pHorizon,pBatchSize =8\ #TO DO CHANGE THIS VALUE
+##### 8, pEpochs=500)
