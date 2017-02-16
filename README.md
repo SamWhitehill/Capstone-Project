@@ -1,6 +1,6 @@
 
 #Capstone-Project
-###Machine Learning project to predict future stock prices using historical stock data.
+###Machine Learning project to predict future stock prices using historical data and technical indicators.
 
 
 ###1. The following python libraries & dependencies are required:
@@ -28,7 +28,7 @@
 ####a. KerasPredict_Master_MultiOutput.py
 ####b. FeatureGeneration.py
 
-####The main program/script  which produces the plots & results is :
+####The main program/script which produces the plots & results is :
 
 ####KerasPredict_Master_MultiOutput.py
 
