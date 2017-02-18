@@ -1,10 +1,8 @@
 
-#Capstone-Project
+#Capstone-Project: Predict Future Stock Prices
 ###Machine Learning project to predict future stock prices using historical data and technical indicators.
 
-
 ###1. The following python libraries & dependencies are required:
-
 ####keras
 ####Theano*
 ####Numpy
@@ -20,9 +18,7 @@
 ###2. *The installation of keras and theano will run as is, but it will be EXTREMELY slow without the G++ compiler installation.
 ####Installing the G++ compiler is hard.
 ####The documentation is here, but its not great:
-
 ####http://deeplearning.net/software/theano/install.html#install
-
 
 ###3. There are 2 python scripts which are used to implement this model:
 ####a. KerasPredict_Master_MultiOutput.py
