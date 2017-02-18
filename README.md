@@ -31,7 +31,6 @@
 ###4. To run the KerasPredict_Master_MultiOutput.py script and see the outputs (charts, print outs),
 ####simply go to the very bottom of the file where this block is listed:
 
-
 ####if __name__=='__main__':
 	
 ####    #fnRunSPY2015(False,9,1)
@@ -54,15 +53,13 @@
 
 ####The 2nd parm is the lookback window in days, and the 3rd param is the forecast horizon in days.
 
-####To change the batch size or learning rate, simply change 
-###the "learn_rate" and pBatchSize parameters within each of the following functions:
+####To change the batch size or learning rate,  change the "learn_rate" and pBatchSize parameters within each of the following functions:
 ####fnRunSPY2015
 ####fnRunOIL
 ####fnRunVXX
 ####fnRunQQQ
 
 ###For example: 
-
 #####def fnRunQQQ(pBlnGridSearch =False,pLook_Back=10, pHorizon=1):
 #####    '''Run the RNN predictions on the QQQ ETF using dates below
 #####    Parm: pBlnGridSearch -true if we perform grid searching, false if not
@@ -76,11 +73,8 @@
 #####
 #####    lStartDateTest=datetime.date(2000, 2, 1)
 #####    lEndDateTest=datetime.date(2000, 7  , 31)
-
 #####    lstrStock="QQQ"
-
-#####    learn_rate=0.0008  #TO DO CHANGE THIS VALUE
-    
+#####    learn_rate=0.0008  #TO DO CHANGE THIS VALUE   
     
 #####    fnMain(lstrStock,lStartDateTrain,lEndDateTrain, lStartDateTest,  lEndDateTest,None,pBlnGridSearch,\
 #####           pLearnRate=learn_rate, pDropout=.1, pLayers=1, pNeuronMultiplier=1,\
