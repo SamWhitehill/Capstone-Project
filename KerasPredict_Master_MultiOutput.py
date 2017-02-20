@@ -21,6 +21,7 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import RandomizedSearchCV
 
 from scipy.stats import randint as sp_randint
+from scipy.stats import expon
 
 from keras.wrappers.scikit_learn import KerasRegressor
 
@@ -116,6 +117,7 @@ def fnGetStationaryTimeSeries(pDf,pLstCols=None,pHorizon=1):
         #print ("USING sqrt INSTEAD OF LOG FOR STATIONARITY")
         #pDf['Natural Log'] = pDf['Close'].apply(lambda x: np.log(x))  
         pDf[fld] =pDf[fld] -pDf[fld].shift(periods=1) #pHorizon)
+        pDf[fld] =pDf[fld] -pDf[fld].shift(periods=1)
         pDf[fld] =pDf[fld] -pDf[fld].shift(periods=1)
 
     return pDf
@@ -458,11 +460,12 @@ def fnRandomizedSearchModel(trainX, trainY):
                             verbose=2)
         
     # specify parameters and distributions to sample from
-    param_dist = {"numNeurons": sp_randint(15,80),
-                  "nLayers": sp_randint(1, 6),
+    param_dist = {"numNeurons": sp_randint(2,45),
+                  "nLayers": sp_randint(1, 5),
                   "nDropout":[.1,.2,.3,.4,.5],
-                  "nLearnRate":[0.00001,0.00002, 0.00008, 0.0002,
-    .0004,.0007,.001,.002,.003,.005,.008,.01,.02 ]}
+                  "nLearnRate":expon.rvs(size=80,scale=.0025) }
+    #[0.00001,0.00002, 0.00008, 0.0002,
+    #.0004,.0007,.001,.002,.003,.005,.008,.01,.02 ]}
 
     tscv = TimeSeriesSplit(n_splits=2)
     #CVData =[(train,test) for train, test in tscv.split(trainX)]
@@ -471,7 +474,7 @@ def fnRandomizedSearchModel(trainX, trainY):
 	for train,test in tscv.split(trainX)]
 
     #clf = GridSearchCV(clfReg, parameters, verbose=1,n_jobs=3, cv=CVData)
-    param_grid = dict(nLayers=nLayers,numNeurons=numNeurons,nDropout=nDropout) #,nLearnRate=nLearnRate )
+    #param_grid = dict(nLayers=nLayers,numNeurons=numNeurons,nDropout=nDropout) #,nLearnRate=nLearnRate )
 
     #param_grid = dict(neuronsL1=neuronsL1,neuronsL2=neuronsL2,neuronsL3=neuronsL3 )
 
@@ -484,11 +487,16 @@ def fnRandomizedSearchModel(trainX, trainY):
     callbacks_list=[ResetStatesCallback()]
     
     #print (param_grid)
-    grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=1,
-                        cv=CVData,fit_params={'callbacks': callbacks_list})
+    #grid = RandomSearchCV(estimator=model, param_grid=param_grid, n_jobs=1,
+                        #cv=CVData,fit_params={'callbacks': callbacks_list})
+    # run randomized search
+    n_iter_search = 20
+    random_search = RandomizedSearchCV(model, param_distributions=param_dist,n_jobs=1,
+    n_iter=n_iter_search,cv=CVData,fit_params={'callbacks': callbacks_list})
+
 
     print ('Random CV Searching '+lstrStock)
-    grid_result = grid.fit(trainX, trainY)
+    grid_result = random_search.fit(trainX, trainY)
     # summarize results
     print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
     #means = grid_result.cv_results_['mean_test_score']
@@ -496,9 +504,6 @@ def fnRandomizedSearchModel(trainX, trainY):
     params = grid_result.best_params_
     return grid_result.best_score_, params
 
-
-
-    
 def fnGridSearchModel(trainX, trainY):
     #Reference:http://machinelearningmastery.com/grid-search-hyperparameters-deep-learning-models-python-keras/
     model = KerasRegressor(build_fn=fnGetModelMultiLayer, nb_epoch=180, batch_size=batch_size,
@@ -557,7 +562,7 @@ def fnGetModel(blnStateful=True, pLook_Back=7, nEpochs =3000, nLearnRate=.01, nD
     #REMOVING dropout severely hurts score/fit
 
     #decreasing learning rate increases volatility
-    model =fnGetModelMultiLayer(nLayers=nLayers,numNeurons=int(numFeatures*nNeuronMultiplier),\
+    model =fnGetModelMultiLayer(nLayers=nLayers,numNeurons=int(nNeuronMultiplier),\
                                 nDropout=nDropout,nLearnRate= learn_rate, nEpochs=nEpochs)
                   
 
@@ -629,6 +634,101 @@ def fnComputePredictedPrices(pBenchMark, pOriginalDF, pPredictions):
         #forecastDF=forecastDF[:len(pPredictions)]
         return forecastDF
 
+def fnAdd3rdDiffToDf(pForecastDf , pForecasted3rdDiff, pBenchMark):
+        pForecastDf =pForecastDf.copy(deep=True)
+        pForecastDf['LogAdjCloseFirstDiff'] =pForecastDf['LogAdjClose'] -pForecastDf['LogAdjClose'].shift(1)
+        pForecastDf['LogAdjCloseSecondDiff'] =pForecastDf['LogAdjCloseFirstDiff'] -pForecastDf['LogAdjCloseFirstDiff'].shift(1)
+        #third diffs replaced with forecasted values, 
+        pForecastDf['LogAdjCloseThirdDiff'] =pForecastDf['LogAdjCloseSecondDiff'] -pForecastDf['LogAdjCloseSecondDiff'].shift(1)
+        
+        #back fill 1st row
+
+        #populate 3rd diff with forecasted values.
+        pForecastDf['LogAdjCloseThirdDiff'][2:len(pBenchMark)+2]=pForecasted3rdDiff
+
+        #add 3rd diff to 2nd diff ON PRIOR day
+        #pForecastDf['LogAdjCloseSecondDiff']= pForecastDf['LogAdjCloseSecondDiff'].shift(1) +pForecastDf['LogAdjCloseThirdDiff']
+        pForecastDf['LogAdjCloseSecondDiff'] =pForecastDf['LogAdjCloseSecondDiff'].shift(-1).values - pForecastDf['LogAdjCloseThirdDiff'].shift(-1).values
+        #add 2nd diff to 1st diff on prior day
+        pForecastDf['LogAdjCloseFirstDiff']  =pForecastDf['LogAdjCloseFirstDiff'].shift(-1).values - pForecastDf['LogAdjCloseSecondDiff'].shift(-1).values
+
+        #pForecastDf['PredictedAdjClose'][:len(pBenchMark)] = \
+        #must populate last row differently since there is no row ahead of it
+        lenDF =len(pForecastDf)
+        pForecastDf['LogAdjCloseSecondDiff'][lenDF - 3:lenDF]= pForecastDf['LogAdjCloseSecondDiff'][lenDF-4:lenDF-3].values +pForecastDf['LogAdjCloseThirdDiff'][lenDF-3:].values
+        pForecastDf['LogAdjCloseFirstDiff'][lenDF - 3:lenDF]= pForecastDf['LogAdjCloseFirstDiff'][lenDF-4:lenDF-3].values +pForecastDf['LogAdjCloseSecondDiff'][lenDF-3:].values
+        #pForecastDf['LogAdjClose'][2:]=\
+        #pForecastDf['LogAdjClose'][1:].values+pForecastDf['LogAdjCloseFirstDiff'][2:].values
+        pForecastDf['LogAdjClose'] =np.log(pForecastDf.shift(1)['Adj Close'])+pForecastDf['LogAdjCloseFirstDiff']
+        return pForecastDf
+
+def fnComputePredictedPricesWith3rdDiffs(pBenchMark, pOriginalDF, pPredictions):
+	#compute forecasted stock prices (adj close) based off of predicted values
+	#predicted values are 1 day differences in log of prices
+        #pOriginalDF
+        #this date start should be 3 bus. days back from prediction !
+        dateStart =pBenchMark[horizon-1:horizon]['Date'].values[0]
+        tmpDate =pOriginalDF[pOriginalDF['Date']<dateStart]
+        dateStart =tmpDate[len(tmpDate)-1:len(tmpDate)-0]['Date'].values[0]
+        del tmpDate
+        #dateStart =pBenchMark[0:1]['Date'].values[0]
+        #dateEnd =pBenchMark[len(pBenchMark):len(pBenchMark)+1]['Date'].values[0]
+        lBenchMValues =pBenchMark[['Adj Close']].values
+        pPredictions =np.reshape(pPredictions, (pPredictions.shape[0]))
+
+        #filter on 1st predicted row
+        forecastDF =pOriginalDF[pOriginalDF['Date']>=dateStart]
+		# need to filter off back end too as this will be Sliced off due to batch size match up.
+        #forecastDF =forecastDF[forecastDF['Date']<=dateEnd]
+        forecastDF =forecastDF[:len(pBenchMark)+3]
+        #calculate log of adj close
+        forecastDF['LogAdjClose'] =np.log(forecastDF['Adj Close'])
+        #TODO: forecastDF['PredictedAdjClose']=0, forecastDF['BenchmarkAdjClose']=0
+        forecastDF['PredictedAdjClose']=0
+        forecastDF['BenchmarkAdjClose']=0
+
+        #forecastDF['LogAdjCloseFirstDiff'] =forecastDF['LogAdjClose'] -forecastDF['LogAdjClose'].shift(1)
+        #forecastDF['LogAdjCloseSecondDiff'] =forecastDF['LogAdjCloseFirstDiff'] -forecastDF['LogAdjCloseFirstDiff'].shift(1)
+		#third diffs replaced with forecasted values
+       # forecastDF['LogAdjCloseThirdDiff'] =forecastDF['LogAdjCloseSecondDiff'] -forecastDF['LogAdjCloseSecondDiff'].shift(1)
+        #forecastDF['LogAdjCloseThirdDiff'] =pPredictions.tolist() 
+
+		#add 3rd diff to 2nd diff ON PRIOR day
+        #forecastDF['LogAdjCloseSecondDiff']= forecastDF['LogAdjCloseSecondDiff'].shift(1) +forecastDF['LogAdjCloseThirdDiff']
+
+		#add 2nd diff to 1st diff on prior day
+        #forecastDF['LogAdjCloseFirstDiff']  =forecastDF['LogAdjCloseFirstDiff'].shift(1) +forecastDF['LogAdjCloseSecondDiff']
+        predDF =	fnAdd3rdDiffToDf(forecastDF,pPredictions.tolist() ,pBenchMark)
+        predDF =predDF[:len(pBenchMark)] 
+        forecastDF['PredictedAdjClose'][:len(pBenchMark)] = predDF['LogAdjClose'].values
+
+        benchDF=	fnAdd3rdDiffToDf(forecastDF,pBenchMark['Adj Close'].values,pBenchMark )
+        benchDF =benchDF[:len(pBenchMark)] 
+        forecastDF['BenchmarkAdjClose'][:len(pBenchMark)] = benchDF['LogAdjClose'].values
+		#forecastDF['LogAdjClose'].shift(1)+forecastDF[:len(pBenchMark)]['LogAdjCloseFirstDiff']
+
+        #add predicted change
+        #forecastDF['PredictedAdjClose'][:len(pBenchMark)]=forecastDF[:len(pBenchMark)]['LogAdjClose'] +pPredictions.tolist()            
+        # add benchmark change
+        #forecastDF['BenchmarkAdjClose'][:len(pBenchMark)]=forecastDF[:len(pBenchMark)]['LogAdjClose'] +pBenchMark['Adj Close'].values
+
+        #convert from log to original price
+        forecastDF['PredictedAdjClose'] =np.exp(forecastDF['PredictedAdjClose'])
+        forecastDF['BenchmarkAdjClose'] =np.exp(forecastDF['BenchmarkAdjClose'])
+            
+		#shift ahead 1 day since we predicted change from prior day.
+        forecastDF['PredictedAdjClose']  =forecastDF['PredictedAdjClose'].shift(1)
+        forecastDF['BenchmarkAdjClose']=forecastDF['BenchmarkAdjClose'].shift(1)
+        #remove first row and last row as these rows were only used for
+        #differencing 
+        forecastDF=forecastDF[1:len(forecastDF)-1]
+        #since we shifted forecasts up to horizon date, there will be nas to drop
+        forecastDF.dropna(inplace=True)
+
+        #slice off remaining prices due to batch size division
+        #forecastDF=forecastDF[:len(pPredictions)]
+        return forecastDF
+
 
 # convert an array of values into a dataset matrix
 def get_dataset(dataset, targetSet=None, look_back=1,horizon=1, positionY=0):
@@ -687,12 +787,13 @@ def fnRunVXX(pBlnGridSearch =False,pLook_Back=10, pHorizon=1):
     lEndDateTest=datetime.date(2010,7,30)
 
     lstrStock="VXX"
-    learn_rate=0.001
+    learn_rate=.00017
+    #best
+    #{'nLayers': 2, 'nLearnRate': 6.3036142416432201e-05, 'nDropout': 0.5, 'numNeurons': 20}
     
     fnMain(lstrStock,lStartDateTrain,lEndDateTrain, lStartDateTest,  lEndDateTest,None,pBlnGridSearch,\
-           pLearnRate=learn_rate, pDropout=.1, pLayers=1, pNeuronMultiplier=2,\
-           pLook_Back=pLook_Back, pHorizon=pHorizon,pBatchSize =8, pEpochs=500)
-
+           pLearnRate=learn_rate, pDropout=.25, pLayers=1, pNeuronMultiplier=3,\
+           pLook_Back=pLook_Back, pHorizon=pHorizon,pBatchSize =4, pEpochs=10)
 
 def fnRunOIL(pBlnGridSearch =False,pLook_Back=10, pHorizon=1):
     '''Run the RNN predictions on the OIL ETF using dates below
@@ -709,12 +810,12 @@ def fnRunOIL(pBlnGridSearch =False,pLook_Back=10, pHorizon=1):
 
     lstrStock="OIL"
 
-    learn_rate=0.004
+    learn_rate=0.00010
     
     #5.5 % r Sq
     fnMain(lstrStock,lStartDateTrain,lEndDateTrain, lStartDateTest,  lEndDateTest,None,pBlnGridSearch,\
-           pLearnRate=learn_rate, pDropout=.1, pLayers=1, pNeuronMultiplier=1,pLook_Back=pLook_Back, pHorizon=pHorizon,\
-           pBatchSize =8, pEpochs=500)
+           pLearnRate=learn_rate, pDropout=.15, pLayers=3, pNeuronMultiplier=3,pLook_Back=pLook_Back, pHorizon=pHorizon,\
+           pBatchSize =2, pEpochs=350)
 
     #fnMain(lstrStock,lStartDateTrain,lEndDateTrain, lStartDateTest,  lEndDateTest,None,pBlnGridSearch,\
      #   pLearnRate=learn_rate, pDropout=.2, pLayers=3, pNeuronMultiplier=4,pLook_Back=pLook_Back, pHorizon=pHorizon)
@@ -736,13 +837,22 @@ def fnRunQQQ(pBlnGridSearch =False,pLook_Back=10, pHorizon=1):
 
     lstrStock="QQQ"
 
-    learn_rate=0.0008
+    learn_rate=.000165
+    learn_rate=0.0059224338214708544
+
+    #Best: 0.004183 using {'nDropout': 0.2, 'nLearnRate': 0.0059224338214708544, 'numNeurons': 26, 
+
+    #'nLayers': 4}
     
-    
+    #USING 1 layer with ONLY 3 neurons  (with 3rd differences) gives R sq of .52 on 1 day horizon!
+    #not 45 neurons, 3 neurons!!!
+    #fnMain(lstrStock,lStartDateTrain,lEndDateTrain, lStartDateTest,  lEndDateTest,None,pBlnGridSearch,\
+    #       pLearnRate=learn_rate, pDropout=.2, pLayers=1, pNeuronMultiplier=3,\
+    #       pLook_Back=pLook_Back, pHorizon=pHorizon,pBatchSize =2, pEpochs=270)
+
     fnMain(lstrStock,lStartDateTrain,lEndDateTrain, lStartDateTest,  lEndDateTest,None,pBlnGridSearch,\
-           pLearnRate=learn_rate, pDropout=.1, pLayers=1, pNeuronMultiplier=2,\
-           pLook_Back=pLook_Back, pHorizon=pHorizon,pBatchSize =8, pEpochs=500)
-    
+           pLearnRate=learn_rate, pDropout=.2, pLayers=4, pNeuronMultiplier=26,\
+           pLook_Back=pLook_Back, pHorizon=pHorizon,pBatchSize =2, pEpochs=300)    
 
 def fnRunSPY2015(pBlnGridSearch =False,pLook_Back=10, pHorizon=1):
     '''Run the RNN predictions on the SPY ETF using dates below
@@ -760,11 +870,12 @@ def fnRunSPY2015(pBlnGridSearch =False,pLook_Back=10, pHorizon=1):
 
     lstrStock="SPY"
 
-    learn_rate=.00025
+    #learn_rate=.00025
+    learn_rate=.00012
 
     fnMain(lstrStock,lStartDateTrain,lEndDateTrain, lStartDateTest,  lEndDateTest,None,pBlnGridSearch,\
            pLearnRate=learn_rate, pDropout=.2, pLayers=3, pNeuronMultiplier=1,pLook_Back=pLook_Back,\
-           pHorizon=pHorizon,pBatchSize =8, pEpochs=300)
+           pHorizon=pHorizon,pBatchSize =4, pEpochs=300)
 
 
 def fnConvertPredictionsTo1Day(pPredictions, pHorizon):
@@ -874,15 +985,15 @@ def fnMain(pSymbol="", pStartDateTrain=None, pEndDateTrain=None, pStartDateTest=
         testX, testY,testBMark,dfStockTest   = fnGetStockData(lstrPath+lstrStock+'dfQuotesTest.csv',
                                                      40, look_back, horizon,lstCols,blnUseWeb,blnRemoveAdjClose,dfTest)
 
-        if True:
+        if False:
                 #plot stock charts to show volatility & trend,etc..
                 fnPlotChart(pBenchmark =dfStockTrain,pStrStock=lstrStock,pStrTitle="Training Data: " + lstrStock +" Historical Prices",pBenchLabel=lstrStock+" Adjusted Closing Price")
                 fnPlotChart(pBenchmark =dfStockTest,pStrStock=lstrStock,pStrTitle="TESTING Data: " +lstrStock +" Historical Prices",pBenchLabel=lstrStock+" Adjusted Closing Price")
         
         #plot stationary time series
-        
-        fnPlotChart(pBenchmark =trainBMark, pStrStock=lstrStock,pStrTitle="Training Data: " + lstrStock +" Historical Prices AFTER Stationarity Transformation",
-		pBenchLabel=lstrStock+" " +str(horizon) +" differencing of Log Adjusted Closing Price")
+        if False:
+            fnPlotChart(pBenchmark =trainBMark, pStrStock=lstrStock,pStrTitle="Training Data: " + lstrStock +" Historical Prices AFTER Stationarity Transformation",
+                    pBenchLabel=lstrStock+" " +str(horizon) +" differencing of Log Adjusted Closing Price")
         # SET THE batch size
         batch_size =pBatchSize # 2*look_back #*2#*5 #higher batch sz gives better results for SPY.
 		
@@ -919,25 +1030,28 @@ def fnMain(pSymbol="", pStartDateTrain=None, pEndDateTrain=None, pStartDateTest=
         trainY=trainY[:lLenData]
 
         if pBlnGridSearch:
+            result, params =fnRandomizedSearchModel(trainX, trainY)
+            print ('Random grid search results',result, params)
             #grid searching using different learning rates
             #the learning rate cannot (easily) be fed into the grid search so we
             #use different preset learning rates
             #and iteratively the grid search with them.
             #lrList =[ 0.02, .008, .004, .001, .0003]
-            lrList =[ .00001,.0002, .0003,.0005, .001, .003, .007,.01,.03]
-            parmList=[]
-            for lr in lrList:
-                learn_rate=lr
-                #fnGridSearchModel returns best fit score and parms
-                result, params =fnGridSearchModel(trainX, trainY)
-                params['learn_rate']=lr
-                parmList.append((result, params))
-                parmList.sort()
+            if False:
+                lrList =[ .00001,.0002, .0003,.0005, .001, .003, .007,.01,.03]
+                parmList=[]
+                for lr in lrList:
+                    learn_rate=lr
+                    #fnGridSearchModel returns best fit score and parms
+                    result, params =fnGridSearchModel(trainX, trainY)
+                    params['learn_rate']=lr
+                    parmList.append((result, params))
+                    parmList.sort()
 
-            print('-----Grid Search Result Score and Parameters-----')
-            for i in parmList:
-                print(i)
-            print('-----Grid Search Results-----')
+                    print('-----Grid Search Result Score and Parameters-----')
+                    for i in parmList:
+                        print(i)
+                    print('-----Grid Search Results-----')
             
         if blnLoadModel:
                 lModelPath=os.path.dirname(os.path.abspath(__file__))
@@ -949,7 +1063,7 @@ def fnMain(pSymbol="", pStartDateTrain=None, pEndDateTrain=None, pStartDateTest=
             # learning schedule callback
             lrate = LearningRateScheduler(step_decay)
             callbacks_list = [lrate]
-            
+            #callbacks_list=None
             
             print ('callbacks used are ' +str(callbacks_list))
             if blnStateful:
@@ -1007,7 +1121,7 @@ def fnMain(pSymbol="", pStartDateTrain=None, pEndDateTrain=None, pStartDateTest=
         print ('Total training data points ' + str(len(trainY)))
         print ('Total testing data points ' + str(len(testY)))
                
-        dfPredictions =fnComputePredictedPrices(testBMark, dfStockTest, testPredict)
+        dfPredictions =fnComputePredictedPricesWith3rdDiffs(testBMark, dfStockTest, testPredict)
         print ('Accuracy Ratio on Test Data Using RNN Model: ' 
         +str(CalculateAccuracyRatio(dfPredictions['PredictedAdjClose'],dfPredictions['Adj Close'])))
 
@@ -1015,8 +1129,8 @@ def fnMain(pSymbol="", pStartDateTrain=None, pEndDateTrain=None, pStartDateTest=
         print ('Accuracy Ratio on Test Data Using Benchmark: '+\
         str(CalculateAccuracyRatio(dfPredictions['BenchmarkAdjClose'],dfPredictions['Adj Close'])))
 
-        #np.savetxt("C:\\temp\\testY.csv", testY, delimiter=',')
-        #np.savetxt("C:\\temp\\testX.csv", testX, delimiter=',')
+        np.savetxt("C:\\temp\\testY.csv", testY, delimiter=',')
+        np.savetxt("C:\\temp\\testPredict.csv", testPredict, delimiter=',')
 
         plt.plot(testY, 'b-',label='Actual '+lstrStock)
         plt.plot(testPredict, 'g-', label='*Predicted* '+lstrStock)
@@ -1035,6 +1149,7 @@ def fnMain(pSymbol="", pStartDateTrain=None, pEndDateTrain=None, pStartDateTest=
                 #print the predicted, actual and benchmark prices
                 pd.set_option('display.max_rows', 500)
                 pd.set_option('display.height', 500)
+
                 display(dfPredictions[['Adj Close','PredictedAdjClose', 'BenchmarkAdjClose']])
                 
                 fnPlotChart(testBMark, testPredict,testY, lstrStock,"Predictions On Test Data (log differences)",pBlnPlotBenchMark=False)
@@ -1075,9 +1190,10 @@ def fnMain(pSymbol="", pStartDateTrain=None, pEndDateTrain=None, pStartDateTest=
 if __name__=='__main__':
 
     '''Each of these fnRunXXX functions will run a forecast for the associated ETF  -SPY, OIL, VXX, QQQ '''
-	
-    fnRunSPY2015(False,18,1)
-    #fnRunOIL(False,9,5)
-    #fnRunVXX(False,9,5)
-    #fnRunQQQ(False,9,1)
+    print ('USING THIRD DIFFERENCES')
+    #fnRunSPY2015(True,18,1)
+    #fnRunSPY2015(False,18,1) 25 % using 2nd differences,learn_rate=.00018
+    #fnRunOIL(False,18,1)
+    fnRunVXX(False,18,1)
+    #fnRunQQQ(False,15,1)
 
