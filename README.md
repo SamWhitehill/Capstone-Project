@@ -24,21 +24,19 @@
 ####a. KerasPredict_Master_MultiOutput.py
 ####b. FeatureGeneration.py
 
-####The main program/script which produces the plots & results is :
-
+####The main program/script which produces the plots & results is:
 ####KerasPredict_Master_MultiOutput.py
 
 ###4. To run the KerasPredict_Master_MultiOutput.py script and see the outputs (charts, print outs),
 ####simply go to the very bottom of the file where this block is listed:
 
 ####if __name__=='__main__':
-	
 ####    #fnRunSPY2015(False,9,1)
 ####    #fnRunOIL(False,9,1)
 ####    #fnRunVXX(False,9,5)
 ####    fnRunQQQ(False,9,1)
 
-####Uncomment out the function corresponding to the ETF you want to run.
+####Uncomment out the function corresponding to the ETF you want to run:
 
 ####To run the prediction for the ETF: SPY, uncomment and run fnRunSPY2015(False,5,1)
 ####To run the prediction for the ETF: OIL, uncomment and run fnRunOIL(False,5,1)
