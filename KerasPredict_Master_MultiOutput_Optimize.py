@@ -4,9 +4,9 @@
 #https://github.com/anujgupta82/DeepNets/blob/master/Online_Learning/Online_Learning_DeepNets.ipynb
 #http://machinelearningmastery.com/grid-search-hyperparameters-deep-learning-models-python-keras/
 #http://philipperemy.github.io/keras-stateful-lstm/
-# LSTM for international airline passengers problem with memory
+#LSTM for international airline passengers problem with memory
 #http://www.jakob-aungiers.com/articles/a/LSTM-Neural-Network-for-Time-Series-Prediction
-# http://machinelearningmastery.com/time-series-prediction-lstm-recurrent-neural-networks-python-keras/
+#http://machinelearningmastery.com/time-series-prediction-lstm-recurrent-neural-networks-python-keras/
 #http://machinelearningmastery.com/use-keras-deep-learning-models-scikit-learn-python/
 #https://github.com/FreddieWitherden/ta/blob/master/ta.py
 #http://www.johnwittenauer.net/a-simple-time-series-analysis-of-the-sp-500-index/
@@ -29,7 +29,6 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
 import math
-
 
 from keras.callbacks import Callback
 from keras.models import Sequential
@@ -57,12 +56,14 @@ from IPython.display import display
 from scipy.optimize import differential_evolution
 #from modGetStockData import fnGetStockData 
 #from PowerForecast import run_network
-'''END IMPORTS '''
+
 
 '''This snippet below is a workaround fix to Keras when grid searching'''
 '''Without this custom fn, there will be a grid search error! '''
 from keras.wrappers.scikit_learn import BaseWrapper
 import copy
+
+'''END IMPORTS '''
 
 def custom_get_params(self, **params):
     res = copy.deepcopy(self.sk_params)
