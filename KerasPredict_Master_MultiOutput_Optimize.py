@@ -54,9 +54,6 @@ from statsmodels.tsa.stattools import adfuller
 
 from IPython.display import display
 from scipy.optimize import differential_evolution
-#from modGetStockData import fnGetStockData 
-#from PowerForecast import run_network
-
 
 '''This snippet below is a workaround fix to Keras when grid searching'''
 '''Without this custom fn, there will be a grid search error! '''
@@ -117,6 +114,8 @@ def fnGetStationaryTimeSeries(pDf,pLstCols=None,pHorizon=1):
         #pDf[fld]  ,_ =boxcox(pDf[fld])
         #print ("USING sqrt INSTEAD OF LOG FOR STATIONARITY")
         #pDf['Natural Log'] = pDf['Close'].apply(lambda x: np.log(x))  
+	#USING 3rd differences to make the time series stationary
+	#1st diffs is NOT enough -no predictive power until 2nd or 3rd differences!
         pDf[fld] =pDf[fld] -pDf[fld].shift(periods=1) #pHorizon)
         pDf[fld] =pDf[fld] -pDf[fld].shift(periods=1)
         pDf[fld] =pDf[fld] -pDf[fld].shift(periods=1)
