@@ -110,12 +110,9 @@ def fnGetStationaryTimeSeries(pDf,pLstCols=None,pHorizon=1):
         lstFlds=pLstCols
     for fld in lstFlds:
         #pDf[fld] =np.log( pDf[fld] )
-        #pDf[fld] = np.log(pDf[fld]/pDf[fld].shift(periods=Nperiods))
+        #first take log to make a constant variance
         pDf[fld] = np.log(pDf[fld])
-        #pDf[fld] = np.sqrt(pDf[fld])
-        #pDf[fld]  ,_ =boxcox(pDf[fld])
-        #print ("USING sqrt INSTEAD OF LOG FOR STATIONARITY")
-        #pDf['Natural Log'] = pDf['Close'].apply(lambda x: np.log(x))  
+	#take several differences to make a constant mean
         pDf[fld] =pDf[fld] -pDf[fld].shift(periods=1) #pHorizon)
         pDf[fld] =pDf[fld] -pDf[fld].shift(periods=1)
         pDf[fld] =pDf[fld] -pDf[fld].shift(periods=1)
