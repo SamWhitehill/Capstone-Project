@@ -14,7 +14,6 @@
 ####IPython
 ####G++ compiler
 
-
 ###2. *The installation of keras and theano will run as is, but it will be EXTREMELY slow without the G++ compiler installation.
 ####Installing the G++ compiler is hard.
 ####The documentation is here, but its not great:
