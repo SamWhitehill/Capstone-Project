@@ -3,9 +3,9 @@
 
  ### 1. The following python libraries & dependencies are required:
   keras
-  Theano*
-  Numpy
-  Scipy
+  theano*
+  numpy
+  scipy
   pandas
   matplotlib
   sklearn
