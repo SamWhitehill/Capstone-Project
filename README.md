@@ -2,16 +2,16 @@
 ## Machine Learning project to predict future stock prices using historical data and technical indicators.
 
  ### 1. The following python libraries & dependencies are required:
-  keras
-  theano*
-  numpy
-  scipy
-  pandas
-  matplotlib
-  sklearn
-  statsmodels
-  IPython
-  G++ compiler
+  keras  
+  theano*  
+  numpy  
+  scipy  
+  pandas  
+  matplotlib  
+  sklearn  
+  statsmodels  
+  IPython  
+  G++ compiler  
 
  ### 2. *The installation of keras and theano will run as is, but it will be EXTREMELY slow without the G++ compiler installation.
   Installing the G++ compiler is hard.
