@@ -2,10 +2,10 @@
 ## Machine Learning project to predict future stock prices using historical data and technical indicators.
 
  ### 1. The following python libraries and dependencies are required:
-  keras  
-  theano*  
   numpy  
-  scipy  
+  scipy
+  keras  
+  theano*   
   pandas  
   matplotlib  
   sklearn  
